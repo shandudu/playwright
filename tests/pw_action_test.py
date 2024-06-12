@@ -21,3 +21,4 @@ def test_pw_notification_message(page: Page) -> None:
     # page.wait_for_timeout(2_000)
     page.get_by_text("点击我试试2").click()
     expect(page.get_by_text("点击成功2!")).to_be_visible()
+    pass

@@ -21,6 +21,15 @@ def test_pw_notification_message(page: Page) -> None:
     page.get_by_text("点击我试试1").click()
     expect(page.get_by_text("点击成功1!")).to_be_visible()
 
+def test_pw_new_page(page: Page) -> None:
+    page.goto("/demo/link", wait_until="networkidle")
+    page.get_by_text("本页跳转到百度").click()
+    expect(page.get_by_text("百度一下", exact=True)).to_be_visible()
+    page.goto("/demo/link", wait_until="networkidle")
+    with page.expect_popup() as new_page:
+        page.get_by_text("新页面跳转到淘宝").click()
+    page_new = new_page.value
+    expect(page_new.locator(".search-button")).to_be_attached()
 
 def test_pw_hover(page: Page) -> None:
     page.goto("/demo/hover", wait_until="networkidle")

@@ -1,3 +1,5 @@
+import os.path
+
 from playwright.sync_api import Page, expect
 
 
@@ -30,6 +32,7 @@ def test_pw_new_page(page: Page) -> None:
         page.get_by_text("新页面跳转到淘宝").click()
     page_new = new_page.value
     expect(page_new.locator(".search-button")).to_be_attached()
+
 
 def test_pw_hover(page: Page) -> None:
     page.goto("/demo/hover", wait_until="networkidle")
@@ -103,3 +106,33 @@ def test_pw_checkbox(page: Page) -> None:
     page.get_by_text("美团").locator("input").set_checked(False)
     expect(page.get_by_text("美团").locator("input")).not_to_be_checked()
     page.wait_for_timeout(1_000)
+
+
+def test_pw_switch(page: Page) -> None:
+    page.goto("/demo/switch", wait_until="networkidle")
+    page.locator('//div[@aria-checked]').click()
+    expect(page.locator('//div[@aria-checked="true"]')).to_be_visible()
+    expect(page.get_by_text("已经学会了~")).to_be_visible()
+    page.locator('//div[@aria-checked]').click()
+    expect(page.locator('//div[@aria-checked="false"]')).to_be_visible()
+
+
+def test_pw_upload(page: Page) -> None:
+    page.goto("/demo/upload", wait_until="networkidle")
+    page.locator('//input[@type="file"]').set_input_files("F:\pythonProject\playwright\playwright01\pytest.ini")
+    expect(page.get_by_text('uploaded').last).to_be_visible()
+    # page.wait_for_timeout(1_000)
+    with page.expect_file_chooser() as chooser:
+        page.locator('(//a)[2]').click()
+    chooser.value.set_files("F:\pythonProject\playwright\playwright01\\tests\my_search_baidu.py")
+    page.wait_for_timeout(2_000)
+    expect(page.get_by_text('uploaded').last).to_be_visible()
+
+
+def test_pw_download(page: Page) -> None:
+    page.goto("/demo/download", wait_until="networkidle")
+    page.locator("textarea").fill("123456")
+    with page.expect_download() as file:
+        page.get_by_text('Download').click()
+    file.value.save_as("123.txt")
+    assert os.path.exists("123.txt")

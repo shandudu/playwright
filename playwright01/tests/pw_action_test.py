@@ -136,3 +136,9 @@ def test_pw_download(page: Page) -> None:
         page.get_by_text('Download').click()
     file.value.save_as("123.txt")
     assert os.path.exists("123.txt")
+
+
+def test_pw_drag(page: Page) -> None:
+    page.goto("/demo/drag", wait_until="networkidle")
+    page.get_by_text("去商场看见什么买什么").drag_to(page.get_by_text("正在做"))
+    expect(page.get_by_text("正在做").locator("xpath=/..").locator('xpath=//*[@id="c26"]')).to_be_visible()

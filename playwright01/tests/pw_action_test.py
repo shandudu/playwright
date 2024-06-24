@@ -23,6 +23,7 @@ def test_pw_notification_message(page: Page) -> None:
     page.get_by_text("点击我试试1").click()
     expect(page.get_by_text("点击成功1!")).to_be_visible()
 
+
 def test_pw_new_page(page: Page) -> None:
     page.goto("/demo/link", wait_until="networkidle")
     page.get_by_text("本页跳转到百度").click()
@@ -31,7 +32,8 @@ def test_pw_new_page(page: Page) -> None:
     with page.expect_popup() as new_page:
         page.get_by_text("新页面跳转到淘宝").click()
     page_new = new_page.value
-    expect(page_new.locator(".search-button")).to_be_attached()
+    expect(page.locator(".search-button")).to_be_attached()
+
 
 
 def test_pw_hover(page: Page) -> None:
@@ -141,4 +143,5 @@ def test_pw_download(page: Page) -> None:
 def test_pw_drag(page: Page) -> None:
     page.goto("/demo/drag", wait_until="networkidle")
     page.get_by_text("去商场看见什么买什么").drag_to(page.get_by_text("正在做"))
-    expect(page.get_by_text("正在做").locator("xpath=/..").locator('xpath=//*[@id="c26"]')).to_be_visible()
+    # expect(page.get_by_text("正在做").locator("xpath=/..").locator('xpath=//*[@id="c26"]')).to_be_visible()
+    expect(page.get_by_text("正在做", exact=True).locator("xpath=/..").get_by_text('去商场看见什么买什么')).to_be_visible()

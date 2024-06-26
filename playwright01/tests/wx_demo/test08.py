@@ -35,6 +35,15 @@ with sync_playwright() as p:
 # popup.wait_for_load_state()
 # print(popup.title())
 
+# 如果触发新页面的操作未知，可以使用以下模式
+
+# Get all new pages (including popups) in the context
+def handle_page(page):
+    page.wait_for_load_state()
+    print(page.title())
+
+context.on("page", handle_page)
+
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=False)
     context = browser.new_context()
@@ -47,3 +56,5 @@ with sync_playwright() as p:
     new_page.wait_for_load_state()  # 等待页面加载到指定状态
     print(new_page.title())
     browser.close()
+
+

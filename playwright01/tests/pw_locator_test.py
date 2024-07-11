@@ -1,8 +1,8 @@
-
+import pytest
 from playwright.sync_api import Page, expect
 
 
-def test_get_by_role(page: Page):
+def test_get_by_role(page: Page, hello_world):
     """
 
     :param page:
@@ -21,3 +21,10 @@ def test_get_by_role(page: Page):
     page.goto("/demo/grid", wait_until="networkidle")
     expect(page.get_by_role("treegrid")).to_be_visible()
     expect(page.get_by_role("row").filter(has_text="溜达王").locator("div").nth(1)).to_have_text("44")
+
+
+@pytest.fixture()
+def hello_world():
+    print("hello")
+    yield
+    print("world")

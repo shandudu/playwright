@@ -1,4 +1,8 @@
 from playwright.sync_api import Page, expect, sync_playwright
+import pytest
+
+
+
 
 def pw1_baidu():
     # pw = sync_playwright().start()
@@ -23,5 +27,5 @@ def pw2_baidu():
     expect(page.get_by_text("https://github.com/microsoft/playwright")).to_be_visible()
     pw.stop()
 
-pw1_baidu()
+pw1_baidu(hello_world)
 pw2_baidu()

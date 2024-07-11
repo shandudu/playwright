@@ -1,9 +1,21 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>北京-宏哥|iframeTestDemo</title>
+    <meta charset="UTF-8">
+    <title>北京-宏哥 滑动条</title>
+    <link rel="stylesheet" href="drag.css">
+    <script src="jquery-1.7.1.min.js"></script>
+    <script src="drag.js"></script>
     <style type="text/css">
-
+        .slidetounlock{
+            font-size: 12px;
+            background:-webkit-gradient(linear,left top,right top,color-stop(0,#4d4d4d),color-stop(.4,#4d4d4d),color-stop(.5,#fff),color-stop(.6,#4d4d4d),color-stop(1,#4d4d4d));
+            -webkit-background-clip:text;
+            -webkit-text-fill-color:transparent;
+            -webkit-animation:slidetounlock 3s infinite;
+            -webkit-text-size-adjust:none
+        }
+        @-webkit-keyframes slidetounlock{0%{background-position:-200px 0} 100%{background-position:200px 0}}
         .button1 {
             background-color: #f44336;
             border: none;
@@ -24,13 +36,21 @@
         }
     </style>
 </head>
-<body style="text-align:center">
-    <div id="wrapper" style="position: relative;top: 100px;left:0px;">
-        <button class="button1"><a id="myAnchor" href="https://www.cnblogs.com/du-hong/">北京-宏哥</a></button></br>
-        <div id="id1">I am a index page's div!</div>
-        <input type="text" id="maininput" />
-        <br/>
-        <iframe id="frameA" frameborder="0" scrolling="no" style="left:857px;position:absolute;" src="iframe.html"></iframe>
+<body>
+<div id="wrapper" style="position: relative;top: 300px;left:300px;">
+    <button class="button1"><a id="myAnchor" href="https://www.cnblogs.com/du-hong/">北京-宏哥</a></button></br>
+    <div id="drag">
+        <div class="drag_bg"></div>
+        <div class="drag_text slidetounlock" onselectstart="return false;" unselectable="on">
+            请按住滑块，拖动到最右边
+        </div>
+        <div class="handler handler_bg"></div>
     </div>
+</div>
+
+<!--<a href="#" class="img"><img src="img/Lighthouse.jpg"/></a>-->
+<script>
+    $('#drag').drag();
+</script>
 </body>
 </html>

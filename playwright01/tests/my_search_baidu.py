@@ -27,5 +27,5 @@ def pw2_baidu():
     expect(page.get_by_text("https://github.com/microsoft/playwright")).to_be_visible()
     pw.stop()
 
-pw1_baidu(hello_world)
+pw1_baidu()
 pw2_baidu()

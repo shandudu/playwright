@@ -1,6 +1,4 @@
-from playwright.sync_api import Page, expect, Playwright
-import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, expect,  Playwright
 
 
 def test_get_by_role(page: Page, hello_world):
@@ -24,11 +22,6 @@ def test_get_by_role(page: Page, hello_world):
     expect(page.get_by_role("row").filter(has_text="溜达王").locator("div").nth(1)).to_have_text("44")
 
 
-@pytest.fixture()
-def hello_world():
-    print("hello")
-    yield
-    print("world")
 
 def test_get_by_text(page: Page):
     page.goto("/demo/getbytext", wait_until="networkidle")
@@ -62,3 +55,26 @@ def test_get_by_test_id(page: Page, playwright: Playwright):
     page.goto("/demo/image", wait_until="networkidle")
     playwright.selectors.set_test_id_attribute("my_test_id")
     expect(page.get_by_test_id("Howls Moving Castle")).to_be_visible()
+
+
+def test_and_or(page: Page)
+
+
+def test_nth_all(page: Page):
+    page.goto("https://www.taobao.com", wait_until="load")
+    expect(page.locator("[aria-label='查看更多']").last).to_contain_text("图书")
+    expect(page.locator("[aria-label='查看更多']").first).to_contain_text("办公")
+    expect(page.locator("[aria-label='查看更多']").nth(0)).to_contain_text("办公")
+    expect(page.locator("[aria-label='查看更多']").nth(-1)).to_contain_text("图书")
+    for _ in page.locator("[aria-label='查看更多']").all():
+        print(_.text_content())
+    print('完成')
+    print('完成')
+
+
+def test_frame_locator(page: Page):
+    page.goto("/demo/iframe", wait_until="load")
+    baidu = page.frame(url="https://www.baidu.com/")
+    baidu.fill('#kw', '百度一下')
+    page.frame_locator("//iframe[@src='http://www.自动化测试.com']").locator("//div[@id='c8']").click()
+    print('完成')

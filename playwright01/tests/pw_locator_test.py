@@ -1,4 +1,4 @@
-from playwright.sync_api import Page, expect,  Playwright
+from playwright.sync_api import Page, expect, Playwright
 
 
 def test_get_by_role(page: Page, hello_world):
@@ -20,7 +20,6 @@ def test_get_by_role(page: Page, hello_world):
     page.goto("/demo/grid", wait_until="networkidle")
     expect(page.get_by_role("treegrid")).to_be_visible()
     expect(page.get_by_role("row").filter(has_text="溜达王").locator("div").nth(1)).to_have_text("44")
-
 
 
 def test_get_by_text(page: Page):
@@ -57,7 +56,47 @@ def test_get_by_test_id(page: Page, playwright: Playwright):
     expect(page.get_by_test_id("Howls Moving Castle")).to_be_visible()
 
 
-def test_and_or(page: Page)
+def test_get_by_css(page: Page):
+    page.goto("https://www.taobao.com")
+    expect(page.locator("#q")).to_be_visible()
+    expect(page.locator("[class=image-search-icon]")).to_be_visible()
+    expect(page.locator(".image-search-icon")).to_be_visible()
+    expect(page.locator(".search-ft.J_SearchFt.clearfix")).to_be_attached()
+    expect(page.locator(".tbh-service.J_Module>div>div")).to_have_count(2)
+    expect(page.locator(".tbh-service.J_Module ul")).to_be_visible()
+    expect(page.locator('.slick-dots[style="display: block;"]')).to_be_visible()
+    expect(page.locator('.slick-dots,#q')).to_have_count(2)
+    expect(page.locator('.tb-pick-feeds-container div.tb-pick-content-item a:not([data-spm="d1"])')).to_have_count(23)
+    expect(page.locator('')).to_be_visible()
+    expect(page.locator('[class*="image-search-i"]')).to_be_visible()  # 属性包含
+    expect(page.locator('[class^="image-search-i"]')).to_be_visible()  # 属性开头
+    expect(page.locator('[class$="image-search-i"]')).to_be_visible()  # 属性结尾
+
+
+def test_get_by_xpath(page: Page):
+    page.goto("https://www.taobao.com")
+    expect(page.locator('//input[@id="q"]')).to_be_visible()
+    expect(page.locator('//div[text()="酷玩数码"]')).to_be_visible()
+    expect(page.locator('//div[contains(text(),"饰时尚")]')).to_be_visible()
+    expect(page.locator(
+        '//div[@data-spm-click="gostr=/tbindex.newpc.guessitem;locaid=dtab_3"][@class="tb-pick-header-tab "]')).to_be_visible()
+
+
+def test_filter(page: Page):
+    page.goto("https://www.taobao.com")
+    assert page.locator('[aria-label="查看更多"]').filter(has_text="图书").get_by_role('link').all_text_contents()[
+               2] == '鲜花'
+    assert page.locator('[aria-label="查看更多"]').filter(has=page.locator('//a[text()="工业品"]')).get_by_role(
+        'link').all_text_contents()[-1] == '定制'
+    expect(page.locator('[aria-label="查看更多"]').filter(has_text="图书").filter(has_not_text="定制").filter(
+        has_text='鲜花')).to_have_count(1)
+
+
+def test_and_or(page: Page):
+    page.goto("https://www.taobao.com")
+    expect(page.get_by_text("电脑").and_(page.get_by_role('link')).or_(page.locator('#q'))).to_have_count(2)
+    expect(page.get_by_text('电脑').and_(page.get_by_role('link'))).to_be_visible()
+    expect(page.get_by_text('电脑').locator("visible=true")).to_be_visible()
 
 
 def test_nth_all(page: Page):

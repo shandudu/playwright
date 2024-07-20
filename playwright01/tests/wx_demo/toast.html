@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>北京-宏哥</title>
+
+</head>
+<style>
+    #hongge {
+        background-color: #f44336;
+        border: none;
+        color: white;
+        padding: 15px 32px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 28px;
+        margin-bottom: 100px;
+        text-decoration:none;
+        color: white;
+    }
+</style>
+<center>
+    <body>
+    <button id="hongge" onclick="clickme();">点击关注</but-ton>
+    </body>
+</center>
+<script>
+
+    function showToast(msg,duration){
+        duration=isNaN(duration)?3000:duration;
+        var m = document.createElement('div');
+        m.innerHTML = msg;
+        m.style.cssText="width:60%; min-width:180px; background:#000; opacity:0.6; height:auto;min-height: 30px; color:#fff; line-height:30px; text-align:center; border-radius:4px; position:fixed; top:30%; left:20%; z-index:999999;";
+        document.body.appendChild(m);
+        setTimeout(function() {
+            var d = 0.5;
+            m.style.webkitTransition = '-webkit-transform ' + d + 's ease-in, opacity ' + d + 's ease-in';
+            m.style.opacity = '0';
+            setTimeout(function() { document.body.removeChild(m) }, d * 1000);
+        }, duration);
+    }
+
+    function clickme(){
+        showToast("感谢关注：北京-宏哥",3000);
+    }
+
+</script>
+</html>

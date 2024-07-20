@@ -33,6 +33,7 @@ def browser_context_args(browser_context_args, pytestconfig: Any):
     width, height = pytestconfig.getoption("--viewport")
     return {
         **browser_context_args,
+        "ignore_https_errors": True,
         "viewport": {
             "width": width,
             "height": height,

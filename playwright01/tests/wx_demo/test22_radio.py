@@ -102,9 +102,7 @@ def run7(playwright: Playwright) -> None:
     page.locator('//input[@id="q3_4"]/following-sibling::a').click()
     page.locator('//input[@id="q4_2"]/following-sibling::a').click()
 
-
     for radio in page.locator('//input[@type="checkbox" and @name="q5"]//following-sibling::a').all():
-
         radio.click()
     page.locator('//input[@id="q6_2"]/following-sibling::a').click()
     page.locator('//input[@id="q7_4"]/following-sibling::a').click()
@@ -114,6 +112,6 @@ def run7(playwright: Playwright) -> None:
     # page.pause()
     browser.close()
 
+
 with sync_playwright() as playwright:
     run7(playwright)
-

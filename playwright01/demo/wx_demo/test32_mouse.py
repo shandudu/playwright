@@ -42,5 +42,19 @@ def run2(playwright: Playwright) -> None:
     context.close()
     browser.close()
 
+def run3(playwright: Playwright) -> None:
+
+    browser = playwright.chromium.launch(headless=False)
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto("https://www.runoob.com/")
+    page.wait_for_timeout(1000)
+    for i in range(50):
+        page.mouse.wheel(0, 100)
+        page.wait_for_timeout(500)
+    #page.pause()
+    context.close()
+    browser.close()
+
 with sync_playwright() as playwright:
-    run2(playwright)
+    run3(playwright)

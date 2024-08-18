@@ -7,3 +7,4 @@ from filelock import FileLock
 from playwright01.module.PageInstance import PageIns
 from playwright01.utils.GetPath import get_path
 from playwright01.utils.globalMap import GlobalMap
+from playwright01.module.BasePage import new_context_return_page

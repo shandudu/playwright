@@ -1,5 +1,8 @@
+import re
+
 import pytest
 from playwright.sync_api import BrowserContext, Page
+from playwright01.utils.globalMap import GlobalMap
 from typing import (
     Any,
     Callable,
@@ -27,6 +30,12 @@ from typing import (
 #     print("this my page")
 #     return context.new_page()
 
+@pytest.fixture(scope="session", autouse=True)
+def test_init(base_url):
+    global_map = GlobalMap()
+    global_map.set('baseurl', base_url)
+    env = re.search("(https://)(.*)(.ezone.work)", base_url).group(2)
+    global_map.set('env', env)
 
 @pytest.fixture(scope="session")
 def browser_context_args(browser_context_args, pytestconfig: Any):

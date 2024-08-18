@@ -8,7 +8,7 @@ class LoginPage(PageObject):
         self.url = "/signin"
         self.user = self.page.get_by_placeholder("用户名/邮箱/手机号")
         self.pwd = self.page.get_by_placeholder("密码")
-        self.state = self.page.locator('//div[text()="xxx_98"]').first
+        self.state = self.page.locator('//span[@class="anticon anticon-bell"]').first
 
 
     def login(self, user, pwd):

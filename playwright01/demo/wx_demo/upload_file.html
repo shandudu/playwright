@@ -1,0 +1,60 @@
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8" />
+    <title>upload_file</title>
+    <script type="text/javascript" async="" src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <link href="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css" rel="stylesheet" />
+    <style type="text/css">
+        #result{
+            width: 1000px;
+            height:300px;
+            border:1px solid #eee;
+        }
+        #result img{
+            width: 200px;
+        }
+        input{
+            width: 70px;
+            margin-top: 10px;
+        }
+        @-moz-document url-prefix() { input { width:65px; } }/*单独对火狐进行设置*/
+    </style>
+    <script type="text/javascript">
+
+        var form = new FormData();//通过HTML表单创建FormData对象
+        var url = '127.0.0.1:8080/'
+        function selectFile(){
+            var files = document.getElementById('pic').files;
+            console.log(files[0]);
+            if(files.length == 0){
+                return;
+            }
+            var file = files[0];
+            //把上传的图片显示出来
+            var reader = new FileReader();
+            // 将文件以Data URL形式进行读入页面
+            console.log(reader);
+            reader.readAsBinaryString(file);
+            reader.onload = function(f){
+                var result = document.getElementById("result");
+                var src = "data:" + file.type + ";base64," + window.btoa(this.result);
+                result.innerHTML = '<img src ="'+src+'"/>';
+            }
+            console.log('file',file);
+            ///////////////////
+            form.append('file',file);
+            console.log(form.get('file'));
+        }
+    </script>
+</head>
+<body>
+<div class="row-fluid">
+    <div class="span6 well">
+        <h3>upload_file</h3>
+        <div id = "result"></div>
+        <input id="pic" type="file" name = 'pic' accept = "image/*" onchange = "selectFile()" />
+    </div>
+</div>
+</body>
+<script src="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/js/bootstrap.min.js"></script>
+</html>

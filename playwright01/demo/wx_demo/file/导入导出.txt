@@ -1,0 +1,74 @@
+郭威:
+_json_data = [    {
+        "序号*": "1",
+        "项目名称*": edit_test.get("项目名称"),
+        "项目编码*": edit_test.get("项目编号"),
+        "分标名称*": f'{edit_fb_test.get("分标名称")}-导入',
+        "分标编码*": f'{edit_fb_test.get("分标编号")}',
+        "分标类型*": edit_fb_test.get("分标类型"),
+        "虚拟分标名称*": "test技术1",
+        "虚拟分标类型*": "技术",
+        "分包名称*": "test1",
+        "分包编码*": "test11",
+        "是否使用资质信息填报功能收集资质信息*": "是",
+        "是否使用标书制作工具制作标书*": "是",
+        "标书制作模板*": "发票",
+    },
+    {
+        "序号*": "2",
+        "项目名称*": edit_test.get("项目名称"),
+        "项目编码*": edit_test.get("项目编号"),
+        "分标名称*": f'{edit_fb_test.get("分标名称")}-导入',
+        "分标编码*": f'{edit_fb_test.get("分标编号")}',
+        "分标类型*": edit_fb_test.get("分标类型"),
+        "虚拟分标名称*": "test商务1",
+        "虚拟分标类型*": "商务",
+        "分包名称*": "test1",
+        "分包编码*": "test11",
+        "是否使用资质信息填报功能收集资质信息*": "是",
+        "是否使用标书制作工具制作标书*": "是",
+        "标书制作模板*": "商务-培训",
+    },
+    {
+        "序号*": "3",
+        "项目名称*": edit_test.get("项目名称"),
+        "项目编码*": edit_test.get("项目编号"),
+        "分标名称*": f'{edit_fb_test.get("分标名称")}-导入',
+        "分标编码*": f'{edit_fb_test.get("分标编号")}',
+        "分标类型*": edit_fb_test.get("分标类型"),
+        "虚拟分标名称*": "test技术2",
+        "虚拟分标类型*": "技术",
+        "分包名称*": "test2",
+        "分包编码*": "test12",
+        "是否使用资质信息填报功能收集资质信息*": "是",
+        "是否使用标书制作工具制作标书*": "是",
+        "标书制作模板*": "发票",
+    },
+    {
+        "序号*": "4",
+        "项目名称*": edit_test.get("项目名称"),
+        "项目编码*": edit_test.get("项目编号"),
+        "分标名称*": f'{edit_fb_test.get("分标名称")}-导入',
+        "分标编码*": f'{edit_fb_test.get("分标编号")}',
+        "分标类型*": edit_fb_test.get("分标类型"),
+        "虚拟分标名称*": "test商务2",
+        "虚拟分标类型*": "商务",
+        "分包名称*": "test2",
+        "分包编码*": "test12",
+        "是否使用资质信息填报功能收集资质信息*": "是",
+        "是否使用标书制作工具制作标书*": "是",
+        "标书制作模板*": "商务-培训",
+    }
+]
+self.page_common.json_to_excel(json_data=_json_data, file_name=f"{gc.data_path}/分标分包导入test.xlsx")
+
+self.page_common.el_checkbox(index=1)
+self.page_common.ca_button(button_name="导入")
+
+self.page_common.el
+
+郭威:
+self.page_common.ca_button(button_name="导入")
+
+self.page_common.el_form_item_upload(label="导入模板", value=f"{gc.data_path}/分标分包导入test.xlsx", index=1)
+self.page_common.ca_button(button_name="确定")

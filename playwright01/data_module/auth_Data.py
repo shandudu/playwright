@@ -20,6 +20,7 @@ class MyData:
             user = {"playwright":
                         {"测试员":
                              {"username": "winni", "password": "playwright001"},
+                             # {"username": "xxx_98", "password": "syx201314"},
                          "测试经理":
                              {"username": "zhang20121104", "password": "playwright123"},
                          },

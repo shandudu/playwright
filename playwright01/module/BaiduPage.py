@@ -1,5 +1,4 @@
 from playwright01.module import *
-from playwright01.module.BasePage import PageObject
 
 
 class Baidu(PageObject):

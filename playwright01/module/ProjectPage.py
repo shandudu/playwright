@@ -1,6 +1,7 @@
 import time
 from playwright01.module import *
 
+
 class ProjectPage(PageObject):
     def __init__(self, page):
         super().__init__(page)
@@ -10,6 +11,11 @@ class ProjectPage(PageObject):
         self.system_button = self.page.locator('//span[@aria-label="setting"]').locator("xpath=/..")
         self.ops = self.page.get_by_text("运维操作")
         self.no_data = self.page.get_by_text("暂无数据")
+
+
+    @property
+    def get_table(self):
+        return self.table(value='项目集名称', index=-1)
 
     def create_project(self, project_name="自动化创建项目集", is_time=True):
         self.navigate()
@@ -21,7 +27,6 @@ class ProjectPage(PageObject):
         self.search_name.fill(project_name)
         expect(self.page.locator("a").filter(has_text=project_name)).to_be_visible()
         return project_name
-
 
     def del_project(self, project_name):
         while True:

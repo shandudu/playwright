@@ -1,6 +1,7 @@
 from playwright01.module import *
 from playwright01.module.table import Table
 from playwright01.module.locators import Locators
+from playwright01.utils.my_date import *
 
 class PageObject:
     def __init__(self, page: Page):
@@ -72,3 +73,47 @@ class PageObject:
             header_div.locator(self.locators.get_header_div(label_name)).get_by_role("switch").set_checked(switch_status, timeout=timeout)
         else:
             self.locators.get_header_div(label_name).get_by_role("switch").set_checked(switch_status, timeout=timeout)
+
+    def el_datetime(self, label: str, days: str, header_div: Locator = None, timeout: float = None):
+        """
+        :param label:
+        :param days:
+        :param header_div:
+        :param timeout:
+        date_locator :日期控件定位
+        :return:
+        """
+        if header_div:
+            date_locator = header_div.locator(self.locators.get_header_div(label))
+        else:
+            date_locator = self.locators.get_header_div(label)
+        days_list = days.split(",")
+        for index, day in enumerate(days_list):
+            try:
+                int(day)
+                # date_formatted 格式化后的日期
+                date_formatted  = return_time_add_days(int(day))
+            except:
+                date_formatted = day
+            date_locator.locator("input").nth(index).click(timeout=timeout)
+            date_locator.locator("input").nth(index).fill(date_formatted, timeout=timeout)
+            # 失焦方法
+            date_locator.locator("input").nth(index).blur(timeout=timeout)
+
+
+    def form_card_add(self,header_div: Locator = None, timeout=None, **kwargs):
+        for label, value in kwargs.items():
+            if not value:
+                continue
+            elif self.locators.get_header_div(label).locator(".ant-input").count():
+                self.el_input(label_name=label, value=value,header_div=header_div, timeout=timeout)
+            elif self.locators.get_header_div(label).locator(".ant-select-selector").count():
+                self.el_select(label_name=label, value=value,header_div=header_div, timeout=timeout)
+            elif self.locators.get_header_div(label).locator(".ant-radio-group").count():
+                self.el_radio(label_name=label, value=value,header_div=header_div, timeout=timeout)
+            elif self.locators.get_header_div(label).get_by_role("switch").count():
+                self.el_switch(label_name=label, switch_status=value,header_div=header_div, timeout=timeout)
+            elif self.locators.get_header_div(label).locator(".ant-picker").count():
+                self.el_datetime(label=label, days=value,header_div=header_div, timeout=timeout)
+            else:
+                pytest.fail(f"不支持的快捷表单填写:\n{label}:{value}")

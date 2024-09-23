@@ -12,6 +12,7 @@ def testcase1():
         browser = p.chromium.launch(headless=False)
         page = browser.new_page()
         page.goto("https://www.baidu.com/")
+        # page.goto("chrome://settings/")
         print(page.title())
         page.fill("input[name=\"wd\"]", "test")
         page.click("text=百度一下")

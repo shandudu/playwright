@@ -117,3 +117,53 @@ class PageObject:
                 self.el_datetime(label=label, days=value,header_div=header_div, timeout=timeout)
             else:
                 pytest.fail(f"不支持的快捷表单填写:\n{label}:{value}")
+
+
+    def form_card_add_only(self, header_div: Locator = None, timeout=None, **kwargs):
+        # 页面上已有的表单项列表 = []
+        # 已经有唯一表单项 = False
+        exist_list = []
+        already_unique_form_item = False
+        if header_div:
+            header_div_locator = header_div
+        else:
+            for index, label in enumerate(kwargs.keys()):
+                if index == 0:
+                    try:
+                        self.locators.get_header_div(label).last.wait_for(timeout=timeout)
+                    except:
+                        pass
+
+                if self.locators.get_header_div(label).count() == 0:
+                    continue
+                else:
+                    if self.locators.get_header_div(label).count() == 1:
+                        already_unique_form_item = True
+                    exist_list.append(self.locators.get_header_div(label))
+                if already_unique_form_item and len(exist_list) >= 2:
+                    break
+
+            # 包含可见表单项的loc = self.page.locator("*")
+            exist_loc = self.page.locator("*")
+            for exist_list_loc in exist_list:
+                exist_loc = exist_loc.filter(has=exist_list_loc)
+            if already_unique_form_item:
+                header_div_locator = exist_loc.last
+            else:
+                header_div_locator = min(exist_loc.all(), key=lambda loc: len(loc.text_content()))
+
+        for label, value in kwargs.items():
+            if not value:
+                continue
+            if self.locators.get_header_div(label).locator(".ant-input").count():
+                self.el_input(label_name=label, value=value, header_div=header_div_locator, timeout=timeout)
+            elif self.locators.get_header_div(label).locator(".ant-select-selector").count():
+                self.el_input(label_name=label, value=value, header_div=header_div_locator, timeout=timeout)
+            elif self.locators.get_header_div(label).locator(".ant-radio-group").count():
+                self.el_radio(label_name=label, value=value, header_div=header_div_locator, timeout=timeout)
+            elif self.locators.get_header_div(label).get_by_role("switch").count():
+                self.el_switch(label_name=label, switch_status=value, header_div=header_div_locator, timeout=timeout)
+            elif self.locators.get_header_div(label).locator(".ant-picker").count():
+                self.el_datetime(label=label, days=value, header_div=header_div_locator, timeout=timeout)
+            else:
+                pytest.fail(f"不支持的快捷表单填写:\n{label}:{value}")

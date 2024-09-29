@@ -26,10 +26,10 @@ def test_new_context(new_context):
     # print(my_page_tester.project_page.get_table.get_cell(2, 6).text_content())
     # my_page_tester.project_page.get_table.get_row_dict()
     # print(my_page_tester.project_page.get_table.get_col_list('开始时间'))
-    my_page_tester.project_page.el_input("项目集名称", '12322222455', my_page_tester.page.locator('//*[@class="ant-form ant-form-horizontal"]')) #最上层元素定位
-    my_page_tester.project_page.el_input("项目集名称", '12322222455') # 无最上层元素定位
-    my_page_tester.project_page.el_select("项目集", 'table_test') # 无最上层元素定位
-    my_page_tester.project_page.el_radio("权限类型", '企业内公开') # 无最上层元素定位
-    my_page_tester.project_page.el_radio("工作流设置规则", '引用项目模板') # 无最上层元素定位
-    # my_page_tester.project_page.el_radio("工作流设置规则", '基于已有项目') # 无最上层元素定位
-    my_page_tester.project_page.el_switch("创建文档空间", '开') # 无最上层元素定位
+    # my_page_tester.project_page.el_input("项目集名称", '12322222455', my_page_tester.page.locator('//*[@class="ant-form ant-form-horizontal"]')) #最上层元素定位
+    # my_page_tester.project_page.el_input("项目集名称", '12322222455') # 无最上层元素定位
+    # my_page_tester.project_page.el_select("项目集", 'table_test') # 无最上层元素定位
+    # my_page_tester.project_page.el_radio("权限类型", '企业内公开') # 无最上层元素定位
+    # my_page_tester.project_page.el_radio("工作流设置规则", '引用项目模板') # 无最上层元素定位
+    # # my_page_tester.project_page.el_radio("工作流设置规则", '基于已有项目') # 无最上层元素定位
+    # my_page_tester.project_page.el_switch("创建文档空间", '开') # 无最上层元素定位

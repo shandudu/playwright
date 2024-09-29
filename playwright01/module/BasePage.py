@@ -167,3 +167,24 @@ class PageObject:
                 self.el_datetime(label=label, days=value, header_div=header_div_locator, timeout=timeout)
             else:
                 pytest.fail(f"不支持的快捷表单填写:\n{label}:{value}")
+
+    # def check_table_box(self, *args, unchecked:bool = False):
+    #     """
+    #     勾选checkbox的方法
+    #     :param args:如果是int,则主要为至上而下选中的checkbox个数（只能传一个）,
+    #     如果是str，则为str能标识的某行的checkbox（可传多个）
+    #     如果是Locator，则为locator为某行的checkbox(可传多个)
+    #     :param unchecked:是否清楚之前勾选，是否先设置为全部不勾选的状态
+    #     :return:
+    #     """
+    #     if unchecked:
+    #         for check_box in self.table_div.locaotr('//input[@type="checkbox"]').all(): check_box.set_checked(False)
+    #     for arg in args:
+    #         if isinstance(arg, int):
+    #             for i in range(arg):
+    #                 for check_box in self.table_div.locator('//tbody/input[@type="checkbox"]').all()[:arg]: check_box.set_checked(True)
+    #                 break
+    #         if isinstance(arg, str):
+    #             self.table_div.locator('//tr').filter(has_text=arg).locator('//input[@type="checkbox"]').set_checked(True)
+    #         if isinstance(arg, Locator):
+    #             self.table_div.locator('//tr').filter(has=arg).locator('//input[@type="checkbox"]').set_checked(True)

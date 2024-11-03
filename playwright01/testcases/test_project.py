@@ -1,8 +1,5 @@
 from playwright01.testcases import *
 
-
-
-
 @用例名称("项目集的新建")
 @用例描述("""
 1. 项目集的新建

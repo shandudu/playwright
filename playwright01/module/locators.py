@@ -6,7 +6,6 @@ class Locators:
         self.page = page
 
 
-
     def button_locator(self, value, index) -> Locator:
         button = self.page.locator("button")
         for word in value:

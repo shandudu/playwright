@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import os
 import sys
+import time
 from pathlib import Path
 from typing import (
     Any,
@@ -306,6 +307,7 @@ class ArtifactsRecorder:
                 #  这里这种写法注意下,如果自己需要放log,用这个方式创建很好
                 os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
                 shutil.move(screenshot, screenshot_path)
+                # shutil.copy(screenshot, screenshot_path)
                 # allure附加图片文件的方法
                 allure.attach.file(screenshot_path, f"{round_prefix}{index + 1}-{human_readable_status}-{screenshot.split(os.sep)[-1]}.png")
         else:
@@ -393,7 +395,8 @@ class ArtifactsRecorder:
                 try:
                     screenshot_path = (
                         # Path(self._pw_artifacts_folder.name) / create_guid()
-                            Path(self._pw_artifacts_folder.name) / page.title()
+                        # Path(self._pw_artifacts_folder.name) / page.title()
+                        Path(self._pw_artifacts_folder.name) / "".join([page.title()[:10], str(time.time_ns())])
                     )
                     page.screenshot(
                         timeout=5000,
@@ -411,21 +414,65 @@ def create_guid() -> str:
     return hashlib.sha256(os.urandom(16)).hexdigest()
 
 
+# @pytest.hookimpl(trylast=True)
+# def pytest_sessionfinish(session):
+#     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
+#     if session.config.getoption("--allure_report_auto_open") != "off":
+#         if sys.platform != "linux":
+#             import subprocess
+#             allure_report_dir = allure_report_auto_open_config
+#             # 尝试关闭可能已经在运行的 Allure 服务
+#             try:
+#                 if sys.platform == 'darwin':  # macOS
+#                     subprocess.call("pkill -f 'allure'", shell=True)
+#                 elif sys.platform == 'win32':  # Windows
+#                     command = "taskkill /F /IM allure.exe /T"
+#                     subprocess.call(command, shell=True)
+#             except Exception as e:
+#                 print(e)
+#             allure_command = f'allure serve {allure_report_dir}'
+#             subprocess.Popen(allure_command, shell=True)
+
+
+# """
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session):
     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-    if session.config.getoption("--allure_report_auto_open") != "off":
+    if allure_report_auto_open_config != "off":
         if sys.platform != "linux":
             import subprocess
-            allure_report_dir = allure_report_auto_open_config
-            # 尝试关闭可能已经在运行的 Allure 服务
+            import psutil
+            import time
+
+            def kill_existing_allure_processes():
+                '''关闭所有运行中的 allure serve 进程'''
+                killed = False
+                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                    try:
+                        cmdline = proc.info['cmdline']
+                        # 确保是 allure serve 进程
+                        if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
+                            print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
+                            psutil.Process(proc.info['pid']).terminate()
+                            killed = True
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                        continue
+
+                if killed:
+                    # 给进程一点时间来完全终止
+                    time.sleep(1)
+                return killed
+
             try:
-                if sys.platform == 'darwin':  # macOS
-                    subprocess.call("pkill -f 'allure'", shell=True)
-                elif sys.platform == 'win32':  # Windows
-                    command = "taskkill /F /IM allure.exe /T"
-                    subprocess.call(command, shell=True)
+                # 先尝试关闭已存在的 allure 进程
+                kill_existing_allure_processes()
+
+                # 启动新的 allure 服务
+                allure_command = f'allure serve {allure_report_auto_open_config}'
+                print(f"Starting new Allure server: {allure_command}")
+                subprocess.Popen(allure_command, shell=True)
+
             except Exception as e:
-                print(e)
-            allure_command = f'allure serve {allure_report_dir}'
-            subprocess.Popen(allure_command, shell=True)
+                print(f"Error managing Allure process: {str(e)}")
+                
+# """

@@ -7,9 +7,11 @@ def test_new_context(new_context):
     my_page_tester.project_page.navigate()
     my_page_tester.project_page.click_button(button_name="新建")
     print('**************')
+    # 数据类的使用
     test_dict = project_data_createProject(项目集名称="table_test", 项目集周期="1, 1", 父项目集="公共项目集")
-    # my_page_tester.project_page.form_card_add(**test_dict.as_dict())
-    my_page_tester.project_page.form_card_add_only(**test_dict.as_dict())
+    my_page_tester.project_page.form_card_add(**test_dict.as_dict())
+    # my_page_tester.project_page.form_card_add_only(**test_dict.as_dict())
+    # my_page_tester.project_page.create_project(**test_dict.as_dict())
 
     # my_page_tester.project_page.form_card_add(项目集名称="table_test", 项目集周期="1, 1", 父项目集="公共项目集")
 

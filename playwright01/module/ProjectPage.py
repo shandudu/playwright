@@ -28,6 +28,18 @@ class ProjectPage(PageObject):
         expect(self.page.locator("a").filter(has_text=project_name)).to_be_visible()
         return project_name
 
+    def create_project2(self, is_time=True, **kwargs):
+        self.navigate()
+        self.click_button("新建")
+        if is_time:
+            project_name = kwargs['项目名']
+            project_name = f"{project_name}_{time.time_ns()}"
+        self.input_name.fill(project_name)
+        self.click_button("确定")
+        self.search_name.fill(project_name)
+        expect(self.page.locator("a").filter(has_text=project_name)).to_be_visible()
+        return project_name
+
     def del_project(self, project_name):
         while True:
             self.navigate()

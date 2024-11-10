@@ -10,7 +10,11 @@ def test_createProject(new_context, del_project):
     with 测试步骤("初始化和登录测试员"):
         my_page_project = PageIns.new_context_return_page(new_context, "测试员")
     with 测试步骤("创建项目集"):
-        aaa = my_page_project.project_page.create_project()
+        # aaa = my_page_project.project_page.create_project()
+        item = {
+            '项目名': '自动化创建项目集'
+        }
+        aaa = my_page_project.project_page.create_project2(**item)
     print(aaa)
 
 @pytest.fixture

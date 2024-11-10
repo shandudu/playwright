@@ -247,6 +247,17 @@ class ArtifactsRecorder:
             playwright: Playwright,
             pw_artifacts_folder: tempfile.TemporaryDirectory,
     ) -> None:
+        """
+        初始化 ArtifactsRecorder 类。
+
+        Args:
+            pytestconfig: pytest 配置对象
+            request: pytest 测试请求对象
+            playwright: Playwright 对象
+            pw_artifacts_folder: 用于存储测试过程中生成的工件的临时目录
+
+        """
+
         self._request = request
         self._pytestconfig = pytestconfig
         self._playwright = playwright
@@ -289,6 +300,14 @@ class ArtifactsRecorder:
             self._capture_trace = self._tracing_option in ["on", "retain-on-failure"]
 
     def did_finish_test(self, failed: bool) -> None:
+        """
+        在测试完成时执行的方法。
+
+        根据测试是否失败以及配置的日志策略,保存截图、录制的跟踪信息和视频。
+
+        Args:
+            failed: 测试是否失败
+        """
         #  获取当前轮次并初始化一个字符串,给保存文件做前缀
         round_prefix = f"round{self._request.node.execution_count}-"
         #  这里可以学习一下组合的布尔逻辑
@@ -368,6 +387,15 @@ class ArtifactsRecorder:
                         pass
 
     def on_did_create_browser_context(self, context: BrowserContext) -> None:
+        """
+        在即将关闭浏览器上下文时执行的方法。
+
+        停止录制跟踪信息,并根据配置保存截图。
+
+        Args:
+            context: 即将关闭的浏览器上下文
+        """
+
         #  上下文里监听,有新的page就添加到列表中
         context.on("page", lambda page: self._all_pages.append(page))
         #  判断是否需要trace,如果需要,就开始录制

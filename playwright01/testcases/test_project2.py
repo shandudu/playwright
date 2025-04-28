@@ -1,22 +1,4 @@
 
-# import os
-# os.environ['PYTHONPATH'] = 'D:\\ythonProject\\playwright\\playwright01'
-# a = os.environ['PYTHONPATH']
-# # 添加项目根目录到系统路径
-# # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-#
-#
-# print(a)
-import sys
-import os
-
-import pytest
-
-sys.path.append("D:\\pythonProject\\playwright\\playwright01")
-# curPath = os.path.abspath(os.path.dirname(__file__))
-# rootPath = os.path.split(curPath)[0]
-# sys.path.append(rootPath)
-# print(sys.path)
 from playwright01.testcases import *
 
 @用例名称("项目集的新建")
@@ -25,8 +7,8 @@ from playwright01.testcases import *
 2. 删除项目集
 """)
 @用例级别(严重)
-@pytest.mark.parallel
-def test_createProject(new_context, del_project):
+@pytest.mark.serial
+def test_createProject_serial(new_context, del_project):
     try:
         with 测试步骤("初始化和登录测试员"):
             my_page_project = PageIns.new_context_return_page(new_context, "测试员")

@@ -28,7 +28,17 @@ import allure
 import re
 from playwright01.utils.globalMap import GlobalMap
 
+# 在全局变量区域添加
+_test_results = {
+    'total': 0,
+    'passed': 0,
+    'failed': 0,
+    'skipped': 0,
+    'failed_tests': []
+}
 
+# 调试模式开关
+DEBUG_MODE = True  # 设为False时跳过实际API调用
 # @pytest.fixture()
 # def hello_world():
 #     print("hello")
@@ -461,46 +471,173 @@ def create_guid() -> str:
 #             allure_command = f'allure serve {allure_report_dir}'
 #             subprocess.Popen(allure_command, shell=True)
 
+# @pytest.hookimpl(trylast=True)
+# def pytest_sessionfinish(session, exitstatus):
+#     # 只在主进程执行（非 worker 进程）
+#     if not hasattr(session.config, 'workerinput'):
+#         allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
+#         if allure_report_auto_open_config != "off" and sys.platform != "linux":
+#             import subprocess
+#             try:
+#                 # 清理现有 Allure 进程
+#                 if sys.platform == 'darwin':
+#                     subprocess.call("pkill -f 'allure'", shell=True)
+#                 elif sys.platform == 'win32':
+#                     subprocess.call("taskkill /F /IM allure.exe /T", shell=True)
+#
+#                 # 启动 Allure 服务
+#                 allure_command = f'allure serve {allure_report_auto_open_config}'
+#                 subprocess.Popen(allure_command, shell=True)
+#             except Exception as e:
+#                 print(f"Allure 报告处理异常: {str(e)}")
 
 # """
-@pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session):
-    allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-    if allure_report_auto_open_config != "off":
-        if sys.platform != "linux":
-            import subprocess
-            import psutil
-            import time
-
-            def kill_existing_allure_processes():
-                '''关闭所有运行中的 allure serve 进程'''
-                killed = False
-                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                    try:
-                        cmdline = proc.info['cmdline']
-                        # 确保是 allure serve 进程
-                        if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
-                            print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
-                            psutil.Process(proc.info['pid']).terminate()
-                            killed = True
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                        continue
-
-                if killed:
-                    # 给进程一点时间来完全终止
-                    time.sleep(1)
-                return killed
-
-            try:
-                # 先尝试关闭已存在的 allure 进程
-                kill_existing_allure_processes()
-
-                # 启动新的 allure 服务
-                allure_command = f'allure serve {allure_report_auto_open_config}'
-                print(f"Starting new Allure server: {allure_command}")
-                subprocess.Popen(allure_command, shell=True)
-
-            except Exception as e:
-                print(f"Error managing Allure process: {str(e)}")
-                
-# """
+# 在文件顶部导入部分添加requests
+# import requests
+# from typing import Dict, List
+#
+#
+# @pytest.hookimpl(trylast=True)
+# def pytest_sessionfinish(session, exitstatus):
+#     """增强的测试结束处理"""
+#     global _test_results
+#
+#     # 1. 打印美观的统计结果
+#     print("\n" + "="*50)
+#     print("测试执行统计".center(50))
+#     print("-"*50)
+#     print(f"总用例数: {_test_results['total']}")
+#     print(f"通过数: \033[32m{_test_results['passed']}\033[0m")
+#     print(f"失败数: \033[31m{_test_results['failed']}\033[0m")
+#     print(f"跳过数: {_test_results['skipped']}")
+#     print("="*50 + "\n")
+#
+#     # 2. 调试模式下保存失败用例到文件
+#     if DEBUG_MODE and _test_results['failed'] > 0:
+#         failed_file = Path(".failed_tests.json")
+#         with open(failed_file, 'w', encoding='utf-8') as f:
+#             json.dump(_test_results['failed_tests'], f, indent=2, ensure_ascii=False)
+#         print(f"[调试模式] 已保存失败用例信息到: {failed_file.absolute()}")
+#
+#     # 3. 实际创建禅道bug
+#     if not DEBUG_MODE and _test_results['failed'] > 0:
+#         print("\n开始为失败用例创建禅道bug...")
+#         for failed_test in _test_results['failed_tests']:
+#             _create_zentaobug(failed_test)
+#
+#     # 保留原有的allure报告处理逻辑
+#     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
+#     if allure_report_auto_open_config != "off":
+#         if sys.platform != "linux":
+#             import subprocess
+#             import psutil
+#             import time
+#             def kill_existing_allure_processes():
+#                 '''关闭所有运行中的 allure serve 进程'''
+#                 killed = False
+#                 for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+#                     try:
+#                         cmdline = proc.info['cmdline']
+#                         # 确保是 allure serve 进程
+#                         if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
+#                             print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
+#                             psutil.Process(proc.info['pid']).terminate()
+#                             killed = True
+#                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+#                         continue
+#
+#                 if killed:
+#                     # 给进程一点时间来完全终止
+#                     time.sleep(1)
+#                 return killed
+#
+#             try:
+#                 # 先尝试关闭已存在的 allure 进程
+#                 kill_existing_allure_processes()
+#
+#                 # 启动新的 allure 服务
+#                 allure_command = f'allure serve {allure_report_auto_open_config}'
+#                 print(f"Starting new Allure server: {allure_command}")
+#                 subprocess.Popen(allure_command, shell=True)
+#
+#             except Exception as e:
+#                 print(f"Error managing Allure process: {str(e)}")
+#
+# # """
+#
+#
+# def _create_zentaobug(failed_test: Dict) -> None:
+#     """创建禅道bug的调试友好版本"""
+#     try:
+#         bug_data = {
+#             "product": "自动化测试",
+#             "module": "Playwright测试",
+#             "title": f"自动化测试失败: {failed_test['name']}",
+#             "steps": f"测试用例 {failed_test['nodeid']} 执行失败\n\n"
+#                     f"错误信息:\n{failed_test.get('error', '无详细错误信息')}",
+#             "severity": 3,
+#             "pri": 2,
+#             "openedBuild": "trunk"
+#         }
+#
+#         if DEBUG_MODE:
+#             # 调试模式下只打印不实际调用
+#             print("\n[调试模式] 模拟创建禅道bug:")
+#             print(json.dumps(bug_data, indent=2, ensure_ascii=False))
+#             return
+#
+#         # 实际调用代码
+#         response = requests.post(
+#             "http://your-zentao-api/bug-create",
+#             json=bug_data,
+#             headers={
+#                 "Content-Type": "application/json",
+#                 "Authorization": "Bearer your_token"
+#             }
+#         )
+#         response.raise_for_status()
+#         print(f"成功创建禅道bug: {response.json()}")
+#     except Exception as e:
+#         print(f"创建禅道bug失败: {str(e)}")
+#
+# @pytest.hookimpl(tryfirst=True)
+# def pytest_runtest_logreport(report):
+#     """增强的错误信息收集"""
+#     global _test_results
+#
+#     if report.when == 'call':
+#         _test_results['total'] += 1
+#
+#         if report.passed:
+#             _test_results['passed'] += 1
+#         elif report.failed:
+#             error_msg = str(report.longrepr) if hasattr(report, 'longrepr') else None
+#             # 提取更详细的错误信息
+#             if error_msg and 'AssertionError' in error_msg:
+#                 error_msg = error_msg.split('AssertionError:')[-1].strip()
+#
+#             _test_results['failed'] += 1
+#             _test_results['failed_tests'].append({
+#                 'name': report.nodeid.split('::')[-1],
+#                 'nodeid': report.nodeid,
+#                 'error': error_msg,
+#                 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+#             })
+#         elif report.skipped:
+#             _test_results['skipped'] += 1
+# import pytest
+#
+# def pytest_collection_modifyitems(config, items):
+#     """根据标记重新排序测试项"""
+#     # 分离并行和串行用例
+#     parallel = []
+#     serial = []
+#
+#     for item in items:
+#         if item.get_closest_marker("parallel"):
+#             parallel.append(item)
+#         else:
+#             serial.append(item)
+#
+#     # 先执行并行用例，后执行串行用例
+#     items[:] = parallel + serial

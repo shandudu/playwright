@@ -23,6 +23,29 @@ class PageObject:
 
         # self.page.get_by_role("button").filter(has_text=button_name).click(timeout=timeout)
 
+    def hover_retry(self, hover对象: Locator, 下一步点击对象: Locator, 第一步动作="hover", 第二步动作="click", timeout=30_000):
+        start_time = time.time()
+        while True:
+            if time.time() - start_time > timeout / 1000:
+                pytest.fail(f"hover重试{hover对象.__str__()}在{timeout/1000}秒内未成功")
+            try:
+                self.page.mouse.move(x=1, y=1)
+                self.page.wait_for_timeout(1_000)
+                if 第一步动作 == "hover":
+                    hover对象.last.hover()
+                else:
+                    hover对象.last.click()
+                self.page.wait_for_timeout(3_000)
+                if 第二步动作 == "click":
+                    下一步点击对象.last.click(timeout=3000)
+                else:
+                    下一步点击对象.last.wait_for(state="visible", timeout=3000)
+                break
+            except:
+                continue
+
+
+
     def search(self, placeholder: str = None, value: str = None):
         if placeholder:
             # self.page.locator(".ant-input-affix-wrapper input").filter(has=self.page.get_by_placeholder(placeholder)).fill(value)

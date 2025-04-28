@@ -27,8 +27,24 @@ import tempfile
 import allure
 import re
 from playwright01.utils.globalMap import GlobalMap
+from playwright._impl._locator import Locator as LocatorImpl
+from playwright._impl._sync_base import mapping
+from playwright.sync_api._generated import Locator as _Locator
+import json
+from allure import step
 
+time_out = 30000
+# 在全局变量区域添加
+_test_results = {
+    'total': 0,
+    'passed': 0,
+    'failed': 0,
+    'skipped': 0,
+    'failed_tests': []
+}
 
+# 调试模式开关
+DEBUG_MODE = True  # 设为False时跳过实际API调用
 # @pytest.fixture()
 # def hello_world():
 #     print("hello")
@@ -360,31 +376,29 @@ class ArtifactsRecorder:
                 if not video:
                     continue
                 try:
+                    # 获取页面标题并处理非法字符
+                    page_title = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', page.title())[:30]
                     video_file_name = (
                         f"{round_prefix}video.webm"
                         if len(self._all_pages) == 1
-                        else f"{round_prefix}video-{index + 1}.webm"
+                        else f"{round_prefix}video-{index + 1}-{page_title}.webm"
                     )
                     video.save_as(
                         path=_build_artifact_test_folder(
                             self._pytestconfig, self._request, video_file_name
                         )
                     )
-                    # allure附加webm录像的方法
-                    allure.attach.file(_build_artifact_test_folder(
-                        self._pytestconfig, self._request, video_file_name
-                    ), "过程录像", allure.attachment_type.WEBM)
+
+                    # 自定义 allure 附件名称
+                    custom_video_title = f"过程录像_{page_title}_{round_prefix}video{index + 1}"
+                    allure.attach.file(
+                        _build_artifact_test_folder(self._pytestconfig, self._request, video_file_name),
+                        custom_video_title,
+                        allure.attachment_type.WEBM
+                    )
                 except Error:
                     # Silent catch empty videos.
                     pass
-        else:
-            for page in self._all_pages:
-                # Can be changed to "if page.video" without try/except once https://github.com/microsoft/playwright-python/pull/2410 is released and widely adopted.
-                if self._video_option in ["on", "retain-on-failure"]:
-                    try:
-                        page.video.delete()
-                    except Error:
-                        pass
 
     def on_did_create_browser_context(self, context: BrowserContext) -> None:
         """
@@ -442,6 +456,158 @@ def create_guid() -> str:
     return hashlib.sha256(os.urandom(16)).hexdigest()
 
 
+
+class Locator(_Locator):
+    __last_step = None
+
+    @property
+    def selector(self):
+        _repr = self.__repr__()
+        if "selector" in _repr:
+            __selector = []
+            for _ in _repr.split("selector=")[1][1:-2].split(" >> "):
+                if r"\\u" not in _:
+                    __selector.append(_)
+                    continue
+                __selector.append(
+                    _.encode("utf8")
+                    .decode("unicode_escape")
+                    .encode("utf8")
+                    .decode("unicode_escape")
+                )
+            return " >> ".join(__selector)
+
+    def __getattribute__(self, attr):
+        global api_Count
+        global time_out
+        try:
+            orig_attr = super().__getattribute__(attr)
+            if callable(orig_attr):
+
+                def wrapped(*args, **kwargs):
+                    step_title = None
+                    if attr == "_sync" and self.__last_step:
+                        step_title = self.__last_step
+                    else:
+                        self.__last_step = attr
+                    start_time = time.time()
+                    global 最后操作的page
+                    最后操作的page = self.page
+                    while True:
+                        self.page.wait_for_load_state()
+                        if time.time() - start_time < int(time_out / 1333):
+                            try:
+                                if attr in ["click", "fill", "hover", "check", "blur", "focus"]:
+                                    self.page.wait_for_timeout(100)
+                                    api_length = len(api_Count)
+                                    if api_Count:
+                                        self.page.wait_for_timeout(200)
+                                        self.page.evaluate('''() => {
+                                               const spanToRemove = document.getElementById('ainotestgogogo');
+                                               if (spanToRemove) {
+                                                   spanToRemove.remove();
+                                               }
+                                           }''')
+                                        self.page.evaluate(f'''() => {{
+                                                const span = document.createElement('span');
+                                                span.textContent = '{attr}:{api_length}';
+                                                span.style.position = 'absolute';
+                                                span.style.top = '0';
+                                                span.style.left = '50%';
+                                                span.style.transform = 'translateX(-50%)';
+                                                span.style.backgroundColor = 'yellow'; // 设置背景色以便更容易看到
+                                                span.style.zIndex = '9999';
+                                                span.id = 'ainotestgogogo';
+                                                document.body.appendChild(span);
+                                            }}''')
+                                    else:
+                                        # 在这里可以添加自己需要等待或者处理的动作,比如等待转圈,关闭弹窗等等(当然,弹窗最好单独做个监听)
+                                        self.page.locator("//*[contains(@class, 'spin-dot-spin')]").locator("visible=true").last.wait_for(state="hidden", timeout=30_000)
+                                        if self.page.locator('//div[@class="antHcbm_routesDashboardCardsHcbmCards_down"][text()="关闭"]').locator("visible=true").or_(self.page.locator(".driver-close-btn").filter(has_text="关闭").locator("visible-true")).count():
+                                            self.page.locator('//div[@class="antHcbm_routesDashboardCardsHcbmCards_down"][text()="关闭"]').locator("visible=true").or_(self.page.locator(".driver-close-btn").filter(has_text="关闭").locator("visible-true")).last.evaluate("node => node.click()")
+                                        self.page.evaluate('''() => {
+                                                const spanToRemove = document.getElementById('ainotestgogogo');
+                                                if (spanToRemove) {
+                                                    spanToRemove.remove();
+                                                }
+                                            }''')
+                                        self.page.evaluate(f'''() => {{
+                                                const span = document.createElement('span');
+                                                span.textContent = '{attr}:{api_length}';
+                                                span.style.position = 'absolute';
+                                                span.style.top = '0';
+                                                span.style.left = '50%';
+                                                span.style.transform = 'translateX(-50%)';
+                                                span.style.backgroundColor = 'green'; // 设置背景色以便更容易看到
+                                                span.style.zIndex = '9999';
+                                                span.id = 'ainotestgogogo';
+                                                document.body.appendChild(span);
+                                            }}''')
+                                        break
+                                else:
+                                    break
+                            except:
+                                self.page.evaluate('''() => {
+                                        const spanToRemove = document.getElementById('ainotestgogogo');
+                                        if (spanToRemove) {
+                                            spanToRemove.remove();
+                                        }
+                                    }''')
+                                self.page.evaluate(f'''() => {{
+                                        const span = document.createElement('span');
+                                        span.textContent = '操作等待中.....';
+                                        span.style.position = 'absolute';
+                                        span.style.top = '0';
+                                        span.style.left = '50%';
+                                        span.style.transform = 'translateX(-50%)';
+                                        span.style.backgroundColor = 'red'; // 设置背景色以便更容易看到
+                                        span.style.zIndex = '9999';
+                                        span.id = 'ainotestgogogo';
+                                        document.body.appendChild(span);
+                                    }}''')
+                                break
+                        else:
+                            self.page.evaluate('''() => {
+                                    const spanToRemove = document.getElementById('ainotestgogogo');
+                                    if (spanToRemove) {
+                                        spanToRemove.remove();
+                                    }
+                                }''')
+                            escaped_api_count = json.dumps(api_Count)
+                            self.page.evaluate(f'''() => {{
+                                    const span = document.createElement('span');
+                                    span.textContent = `当前列表内容为: {escaped_api_count}`;
+                                    span.style.position = 'absolute';
+                                    span.style.top = '0';
+                                    span.style.left = '50%';
+                                    span.style.transform = 'translateX(-50%)';
+                                    span.style.backgroundColor = 'red'; // 设置背景色以便更容易看到
+                                    span.style.zIndex = '9999';
+                                    span.id = 'ainotestgogogo';
+                                    document.body.appendChild(span);
+                                }}''')
+                            if sys.platform != "linux":
+                                print("接口卡超时了,暂时放行,需要查看超时接口或调整接口监听范围:")
+                                print(escaped_api_count)
+                                pass
+                            api_Count.clear()
+                            break
+
+                    if step_title:
+                        with step(f"{step_title}: {self.selector}"):
+                            return orig_attr(*args, **kwargs)
+                    return orig_attr(*args, **kwargs)
+
+                return wrapped
+            return orig_attr
+        except AttributeError:
+            ...
+
+
+mapping.register(LocatorImpl, Locator)
+
+
+
 # @pytest.hookimpl(trylast=True)
 # def pytest_sessionfinish(session):
 #     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
@@ -461,46 +627,173 @@ def create_guid() -> str:
 #             allure_command = f'allure serve {allure_report_dir}'
 #             subprocess.Popen(allure_command, shell=True)
 
-
-# """
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session):
-    allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-    if allure_report_auto_open_config != "off":
-        if sys.platform != "linux":
+def pytest_sessionfinish(session, exitstatus):
+    # 只在主进程执行（非 worker 进程）
+    if not hasattr(session.config, 'workerinput'):
+        allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
+        if allure_report_auto_open_config != "off" and sys.platform != "linux":
             import subprocess
-            import psutil
-            import time
-
-            def kill_existing_allure_processes():
-                '''关闭所有运行中的 allure serve 进程'''
-                killed = False
-                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                    try:
-                        cmdline = proc.info['cmdline']
-                        # 确保是 allure serve 进程
-                        if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
-                            print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
-                            psutil.Process(proc.info['pid']).terminate()
-                            killed = True
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                        continue
-
-                if killed:
-                    # 给进程一点时间来完全终止
-                    time.sleep(1)
-                return killed
-
             try:
-                # 先尝试关闭已存在的 allure 进程
-                kill_existing_allure_processes()
+                # 清理现有 Allure 进程
+                if sys.platform == 'darwin':
+                    subprocess.call("pkill -f 'allure'", shell=True)
+                elif sys.platform == 'win32':
+                    subprocess.call("taskkill /F /IM allure.exe /T", shell=True)
 
-                # 启动新的 allure 服务
+                # 启动 Allure 服务
                 allure_command = f'allure serve {allure_report_auto_open_config}'
-                print(f"Starting new Allure server: {allure_command}")
                 subprocess.Popen(allure_command, shell=True)
-
             except Exception as e:
-                print(f"Error managing Allure process: {str(e)}")
-                
+                print(f"Allure 报告处理异常: {str(e)}")
+
 # """
+# 在文件顶部导入部分添加requests
+# import requests
+# from typing import Dict, List
+#
+#
+# @pytest.hookimpl(trylast=True)
+# def pytest_sessionfinish(session, exitstatus):
+#     """增强的测试结束处理"""
+#     global _test_results
+#
+#     # 1. 打印美观的统计结果
+#     print("\n" + "="*50)
+#     print("测试执行统计".center(50))
+#     print("-"*50)
+#     print(f"总用例数: {_test_results['total']}")
+#     print(f"通过数: \033[32m{_test_results['passed']}\033[0m")
+#     print(f"失败数: \033[31m{_test_results['failed']}\033[0m")
+#     print(f"跳过数: {_test_results['skipped']}")
+#     print("="*50 + "\n")
+#
+#     # 2. 调试模式下保存失败用例到文件
+#     if DEBUG_MODE and _test_results['failed'] > 0:
+#         failed_file = Path(".failed_tests.json")
+#         with open(failed_file, 'w', encoding='utf-8') as f:
+#             json.dump(_test_results['failed_tests'], f, indent=2, ensure_ascii=False)
+#         print(f"[调试模式] 已保存失败用例信息到: {failed_file.absolute()}")
+#
+#     # 3. 实际创建禅道bug
+#     if not DEBUG_MODE and _test_results['failed'] > 0:
+#         print("\n开始为失败用例创建禅道bug...")
+#         for failed_test in _test_results['failed_tests']:
+#             _create_zentaobug(failed_test)
+#
+#     # 保留原有的allure报告处理逻辑
+#     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
+#     if allure_report_auto_open_config != "off":
+#         if sys.platform != "linux":
+#             import subprocess
+#             import psutil
+#             import time
+#             def kill_existing_allure_processes():
+#                 '''关闭所有运行中的 allure serve 进程'''
+#                 killed = False
+#                 for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+#                     try:
+#                         cmdline = proc.info['cmdline']
+#                         # 确保是 allure serve 进程
+#                         if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
+#                             print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
+#                             psutil.Process(proc.info['pid']).terminate()
+#                             killed = True
+#                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+#                         continue
+#
+#                 if killed:
+#                     # 给进程一点时间来完全终止
+#                     time.sleep(1)
+#                 return killed
+#
+#             try:
+#                 # 先尝试关闭已存在的 allure 进程
+#                 kill_existing_allure_processes()
+#
+#                 # 启动新的 allure 服务
+#                 allure_command = f'allure serve {allure_report_auto_open_config}'
+#                 print(f"Starting new Allure server: {allure_command}")
+#                 subprocess.Popen(allure_command, shell=True)
+#
+#             except Exception as e:
+#                 print(f"Error managing Allure process: {str(e)}")
+#
+# # """
+#
+#
+# def _create_zentaobug(failed_test: Dict) -> None:
+#     """创建禅道bug的调试友好版本"""
+#     try:
+#         bug_data = {
+#             "product": "自动化测试",
+#             "module": "Playwright测试",
+#             "title": f"自动化测试失败: {failed_test['name']}",
+#             "steps": f"测试用例 {failed_test['nodeid']} 执行失败\n\n"
+#                     f"错误信息:\n{failed_test.get('error', '无详细错误信息')}",
+#             "severity": 3,
+#             "pri": 2,
+#             "openedBuild": "trunk"
+#         }
+#
+#         if DEBUG_MODE:
+#             # 调试模式下只打印不实际调用
+#             print("\n[调试模式] 模拟创建禅道bug:")
+#             print(json.dumps(bug_data, indent=2, ensure_ascii=False))
+#             return
+#
+#         # 实际调用代码
+#         response = requests.post(
+#             "http://your-zentao-api/bug-create",
+#             json=bug_data,
+#             headers={
+#                 "Content-Type": "application/json",
+#                 "Authorization": "Bearer your_token"
+#             }
+#         )
+#         response.raise_for_status()
+#         print(f"成功创建禅道bug: {response.json()}")
+#     except Exception as e:
+#         print(f"创建禅道bug失败: {str(e)}")
+#
+# @pytest.hookimpl(tryfirst=True)
+# def pytest_runtest_logreport(report):
+#     """增强的错误信息收集"""
+#     global _test_results
+#
+#     if report.when == 'call':
+#         _test_results['total'] += 1
+#
+#         if report.passed:
+#             _test_results['passed'] += 1
+#         elif report.failed:
+#             error_msg = str(report.longrepr) if hasattr(report, 'longrepr') else None
+#             # 提取更详细的错误信息
+#             if error_msg and 'AssertionError' in error_msg:
+#                 error_msg = error_msg.split('AssertionError:')[-1].strip()
+#
+#             _test_results['failed'] += 1
+#             _test_results['failed_tests'].append({
+#                 'name': report.nodeid.split('::')[-1],
+#                 'nodeid': report.nodeid,
+#                 'error': error_msg,
+#                 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+#             })
+#         elif report.skipped:
+#             _test_results['skipped'] += 1
+# import pytest
+#
+# def pytest_collection_modifyitems(config, items):
+#     """根据标记重新排序测试项"""
+#     # 分离并行和串行用例
+#     parallel = []
+#     serial = []
+#
+#     for item in items:
+#         if item.get_closest_marker("parallel"):
+#             parallel.append(item)
+#         else:
+#             serial.append(item)
+#
+#     # 先执行并行用例，后执行串行用例
+#     items[:] = parallel + serial

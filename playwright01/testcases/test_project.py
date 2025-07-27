@@ -25,7 +25,7 @@ from playwright01.testcases import *
 2. 删除项目集
 """)
 @用例级别(严重)
-# @pytest.mark.parallel
+@pytest.mark.parallel
 def test_createProject(new_context, del_project):
     try:
         with 测试步骤("初始化和登录测试员"):
@@ -43,12 +43,8 @@ def test_createProject(new_context, del_project):
 @pytest.fixture
 def del_project(new_context):
     try:
-        # print('前置')
-        # my_page_project = PageIns.new_context_return_page(new_context, "测试员")
-        # my_page_project.page.goto('https://www.baidu.com')
-
+        print('前置')
         yield
-
         with 测试步骤("初始化和登录测试员"):
             my_page_project = PageIns.new_context_return_page(new_context, "测试员")
         with 测试步骤("删除项目集"):
@@ -58,4 +54,4 @@ def del_project(new_context):
 
 if __name__ == '__main__':
     # import pytest
-    pytest.main(['-s', 'test_project.py'])
+    pytest.main(['-s', 'test_baidu.py'])

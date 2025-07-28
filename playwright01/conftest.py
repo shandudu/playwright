@@ -4,6 +4,9 @@ import os
 import sys
 import time
 from pathlib import Path
+
+from data_module import globalconfig
+from data_module.globalconfig import *
 from typing import (
     Any,
     Dict,
@@ -33,6 +36,8 @@ from playwright.sync_api._generated import Locator as _Locator
 import json
 from allure import step
 
+from utils.http_util import HttpClient
+
 # 在全局变量区域添加
 _test_results = {
     'total': 0,
@@ -42,14 +47,6 @@ _test_results = {
     'failed_tests': []
 }
 time_out = 30000
-# 在全局变量区域添加
-_test_results = {
-    'total': 0,
-    'passed': 0,
-    'failed': 0,
-    'skipped': 0,
-    'failed_tests': []
-}
 
 # 调试模式开关
 DEBUG_MODE = True  # 设为False时跳过实际API调用
@@ -616,44 +613,7 @@ mapping.register(LocatorImpl, Locator)
 
 
 
-# @pytest.hookimpl(trylast=True)
-# def pytest_sessionfinish(session):
-#     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-#     if session.config.getoption("--allure_report_auto_open") != "off":
-#         if sys.platform != "linux":
-#             import subprocess
-#             allure_report_dir = allure_report_auto_open_config
-#             # 尝试关闭可能已经在运行的 Allure 服务
-#             try:
-#                 if sys.platform == 'darwin':  # macOS
-#                     subprocess.call("pkill -f 'allure'", shell=True)
-#                 elif sys.platform == 'win32':  # Windows
-#                     command = "taskkill /F /IM allure.exe /T"
-#                     subprocess.call(command, shell=True)
-#             except Exception as e:
-#                 print(e)
-#             allure_command = f'allure serve {allure_report_dir}'
-#             subprocess.Popen(allure_command, shell=True)
 
-# @pytest.hookimpl(trylast=True)
-# def pytest_sessionfinish(session, exitstatus):
-#     # 只在主进程执行（非 worker 进程）
-#     if not hasattr(session.config, 'workerinput'):
-#         allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-#         if allure_report_auto_open_config != "off" and sys.platform != "linux":
-#             import subprocess
-#             try:
-#                 # 清理现有 Allure 进程
-#                 if sys.platform == 'darwin':
-#                     subprocess.call("pkill -f 'allure'", shell=True)
-#                 elif sys.platform == 'win32':
-#                     subprocess.call("taskkill /F /IM allure.exe /T", shell=True)
-#
-#                 # 启动 Allure 服务
-#                 allure_command = f'allure serve {allure_report_auto_open_config}'
-#                 subprocess.Popen(allure_command, shell=True)
-#             except Exception as e:
-#                 print(f"Allure 报告处理异常: {str(e)}")
 
 # """
 # 在文件顶部导入部分添加requests
@@ -764,31 +724,7 @@ mapping.register(LocatorImpl, Locator)
 #     except Exception as e:
 #         print(f"创建禅道bug失败: {str(e)}")
 #
-# @pytest.hookimpl(tryfirst=True)
-# def pytest_runtest_logreport(report):
-#     """增强的错误信息收集"""
-#     global _test_results
-#
-#     if report.when == 'call':
-#         _test_results['total'] += 1
-#
-#         if report.passed:
-#             _test_results['passed'] += 1
-#         elif report.failed:
-#             error_msg = str(report.longrepr) if hasattr(report, 'longrepr') else None
-#             # 提取更详细的错误信息
-#             if error_msg and 'AssertionError' in error_msg:
-#                 error_msg = error_msg.split('AssertionError:')[-1].strip()
-#
-#             _test_results['failed'] += 1
-#             _test_results['failed_tests'].append({
-#                 'name': report.nodeid.split('::')[-1],
-#                 'nodeid': report.nodeid,
-#                 'error': error_msg,
-#                 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
-#             })
-#         elif report.skipped:
-#             _test_results['skipped'] += 1
+
 # import pytest
 #
 # def pytest_collection_modifyitems(config, items):
@@ -805,25 +741,207 @@ mapping.register(LocatorImpl, Locator)
 #
 #     # 先执行并行用例，后执行串行用例
 #     items[:] = parallel + serial
+
+
+# 替换原有的 pytest_sessionfinish 函数
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_logreport(report):
+    """增强的错误信息收集"""
+    global _test_results
+
+    if report.when == 'call':
+        _test_results['total'] += 1
+
+        if report.passed:
+            _test_results['passed'] += 1
+        elif report.failed:
+            error_msg = str(report.longrepr) if hasattr(report, 'longrepr') else None
+            # 提取更详细的错误信息
+            if error_msg and 'AssertionError' in error_msg:
+                error_msg = error_msg.split('AssertionError:')[-1].strip()
+
+            _test_results['failed'] += 1
+            _test_results['failed_tests'].append({
+                'name': report.nodeid.split('::')[-1],
+                'nodeid': report.nodeid,
+                'error': error_msg,
+                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+            })
+        elif report.skipped:
+            _test_results['skipped'] += 1
+
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
-    # 只在主进程执行（非 worker 进程）
+    # 只在主进程中打开报告
     if not hasattr(session.config, 'workerinput'):
-        allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-        if allure_report_auto_open_config != "off" and sys.platform != "linux":
-            import subprocess
-            try:
-                # 清理现有 Allure 进程
-                if sys.platform == 'darwin':
-                    subprocess.call("pkill -f 'allure'", shell=True)
-                elif sys.platform == 'win32':
-                    subprocess.call("taskkill /F /IM allure.exe /T", shell=True)
+        if ENABLE_ALLURE_REPORT:
+            # 自动打开allure报告
+            allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
+            if allure_report_auto_open_config not in ["off", None, ""]:
+                if sys.platform != "linux":
+                    import subprocess
+                    import psutil
+                    import time
 
-                # 启动 Allure 服务
-                allure_command = f'allure serve {allure_report_auto_open_config}'
-                subprocess.Popen(allure_command, shell=True)
-            except Exception as e:
-                print(f"Allure 报告处理异常: {str(e)}")
+                    def kill_existing_allure_processes():
+                        '''关闭所有运行中的 allure serve 进程'''
+                        killed = False
+                        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                            try:
+                                cmdline = proc.info['cmdline']
+                                # 确保是 allure serve 进程
+                                if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
+                                    print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
+                                    psutil.Process(proc.info['pid']).terminate()
+                                    killed = True
+                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                                continue
+
+                        if killed:
+                            # 给进程一点时间来完全终止
+                            time.sleep(3)
+                        return killed
+
+                    try:
+                        # 先尝试关闭已经存在的 allure 进程
+                        kill_existing_allure_processes()
+
+                        # 启动新的 allure 服务
+                        allure_report_dir = allure_report_auto_open_config
+                        allure_command = f'allure serve {allure_report_dir}'
+                        print(f"Starting new Allure server: {allure_command}")
+                        subprocess.Popen(allure_command, shell=True)
+
+                    except Exception as e:
+                        print(f"Error managing Allure process: {str(e)}")
+
+        # 创建cat2bug BUG
+        if ENABLE_CAT2BUG_CREATION:
+            print("\n开始为失败用例创建cat2bug...")
+            for failed_test in _test_results['failed_tests']:
+                print(f"正在为用例 {failed_test['name']} 创建bug...")
+                # 调用构造函数，该函数会完成登录和创建bug的全过程
+                bug_result = construct_bug_data(failed_test)
+                if bug_result.get('status') == 'success':
+                    print(f"成功创建bug，编号: {bug_result.get('bug_id')}")
+                else:
+                    print("创建bug失败")
+
+def construct_bug_data(failed_test: Dict, **kwargs) -> Dict:
+    """构造cat2bug系统 bug 数据"""
+    # 登录获取token
+    with HttpClient(base_url=f"{BASE_URL}") as client:
+        login_data = {
+            "username": f"{USER}",
+            "password": f"{PWD}"
+        }
+
+        login_result = client.post("/login", json_data=login_data)
+        token = login_result.get('data', {}).get('token') if login_result.get('status_code') == 200 else None
+
+        if not token:
+            print("获取token失败")
+            return {}
+
+        # 构造bug数据
+        bug_data = {
+            "defectId": None,
+            "defectType": "BUG",
+            "defectName": f"自动化测试失败:{failed_test.get('name', '未知用例')}",
+            "defectDescribe": f"测试用例执行失败\n错误信息:\n{failed_test.get('error_message', '无错误信息')}\n\n测试节点:{failed_test.get('nodeid', '未知节点')}",
+            "annexUrls": None,
+            "imgUrls": None,
+            "projectId": 124,  # 可根据需要配置
+            "testPlanId": None,
+            "caseId": None,
+            "dataSources": None,
+            "dataSourcesParams": None,
+            "moduleId": None,
+            "moduleVersion": None,
+            "createBy": None,
+            "updateTime": None,
+            "createTime": None,
+            "updateBy": None,
+            "defectState": None,
+            "caseStepId": 0,
+            "handleBy": [213],  # 可根据需要配置处理人
+            "handleTime": None,
+            "defectLevel": "middle",
+            "srcHost": "https://www.cat2bug.com:8022"
+        }
+
+        # 请求头配置
+        headers = {
+            'authorization': f'Bearer {token}',
+            'Accept': "*/*",
+            'Content-Type': "application/json; charset=UTF-8"
+        }
+
+        # 提交bug
+        result = client.post("/system/defect", json_data=bug_data, headers=headers)
+
+        if result.get('status_code') == 200:
+            project_num = result.get('data', {}).get('data', {}).get('projectNum')
+            print(f"成功创建bug，bug编号: {project_num}")
+            return {
+                'bug_id': project_num,
+                'status': 'success',
+                'details': result
+            }
+        else:
+            print(f"创建bug失败: {result}")
+            return {
+                'bug_id': None,
+                'status': 'failed',
+                'details': result
+            }
+
+def get_assignee_from_test_case(failed_test: dict) -> str:
+    """
+    根据失败用例的文件名提取模块关键字，并查找配置中的负责人ID
+    :param failed_test: 失败的测试用例信息字典
+    :return: 负责人ID（字符串）
+    """
+
+    def extract_module_key(name: str):
+        """
+        从测试名称中提取 test_xxx.py 文件名中的完整模块关键字（含 .py）
+        示例输入：
+            'testcases/test_询报价流程_无PN申请转询价.py::test_询报价流程_申请转询价_无PN申请[chromium]'
+        输出：
+            'test_询报价流程_无PN申请转询价.py'
+        """
+        # 提取 :: 左边的部分（即文件路径部分）
+        file_part = name.split("::")[0] if "::" in name else name
+        # 获取文件名（不含路径）
+        filename = Path(file_part).name  # 如 test_询报价流程_无PN申请转询价.py
+
+        # 匹配 test_xxx.py 格式的文件名
+        match = re.search(r"(test_.+?\.py)", filename, re.UNICODE)
+        if match:
+            return match.group(1)  # 返回完整文件名如 test_xxx.py
+        return None
+
+    # 尝试从 'name' 中提取模块关键字
+    test_name = failed_test.get('name', '')
+    module_key = extract_module_key(test_name)
+
+    # 如果没找到，尝试从 'nodeid' 中提取（更可靠）
+    if not module_key:
+        nodeid = failed_test.get('nodeid', '')
+        module_key = extract_module_key(nodeid)
+
+    # 查找配置中的指派人
+    if module_key:
+        assignee = getattr(globalconfig, "BUG_ASSIGNMENT_RULES", {}).get(module_key)
+        if assignee:
+            return assignee
+
+    # 返回默认负责人
+    return getattr(globalconfig, "DEFAULT_ASSIGNEE", "fallback_id")
 
 # """
 # 在文件顶部导入部分添加requests

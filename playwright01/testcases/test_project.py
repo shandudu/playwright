@@ -52,6 +52,6 @@ def del_project(new_context):
     except Exception as e:
         pass
 
-if __name__ == '__main__':
-    # import pytest
-    pytest.main(['-s', 'test_baidu.py'])
+# if __name__ == '__main__':
+#     # import pytest
+#     pytest.main(['-s', 'test_baidu.py'])

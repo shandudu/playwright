@@ -46,7 +46,8 @@ class PageIns:
                 expect(my_page.login_page.user.or_(my_page.login_page.state)).to_be_visible()
                 if my_page.login_page.user.count():
                     my_page.login_page.login(username, password)
-                    my_page.page.context.storage_state(path=get_path(f".temp/{env}--{user}.json"))
+                    # 注释掉，因为storage_state有的系统使用会有问题
+                    # my_page.page.context.storage_state(path=get_path(f".temp/{env}--{user}.json"))
             else:
                 context: BrowserContext = new_context()
                 page = context.new_page()

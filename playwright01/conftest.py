@@ -820,8 +820,8 @@ def pytest_sessionfinish(session, exitstatus):
 
         # 创建cat2bug BUG
         if ENABLE_CAT2BUG_CREATION:
-            print("\n开始为失败用例创建cat2bug...")
             for failed_test in _test_results['failed_tests']:
+                print("\n开始为失败用例创建cat2bug...")
                 print(f"正在为用例 {failed_test['name']} 创建bug...")
                 # 调用构造函数，该函数会完成登录和创建bug的全过程
                 bug_result = construct_bug_data(failed_test)

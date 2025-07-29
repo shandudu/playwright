@@ -53,5 +53,6 @@ class PageIns:
                 page = context.new_page()
                 my_page = PageIns(page)
                 my_page.login_page.login(username, password)
-                my_page.page.context.storage_state(path=get_path(f".temp/{env}--{user}.json"))
+                # 注释掉，因为storage_state有的系统使用会有问题
+                # my_page.page.context.storage_state(path=get_path(f".temp/{env}--{user}.json"))
         return my_page

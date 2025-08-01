@@ -46,10 +46,7 @@ _test_results = {
     'skipped': 0,
     'failed_tests': []
 }
-time_out = 30000
 
-# 调试模式开关
-DEBUG_MODE = True  # 设为False时跳过实际API调用
 # @pytest.fixture()
 # def hello_world():
 #     print("hello")
@@ -636,18 +633,6 @@ mapping.register(LocatorImpl, Locator)
 #     print(f"跳过数: {_test_results['skipped']}")
 #     print("="*50 + "\n")
 #
-#     # 2. 调试模式下保存失败用例到文件
-#     if DEBUG_MODE and _test_results['failed'] > 0:
-#         failed_file = Path(".failed_tests.json")
-#         with open(failed_file, 'w', encoding='utf-8') as f:
-#             json.dump(_test_results['failed_tests'], f, indent=2, ensure_ascii=False)
-#         print(f"[调试模式] 已保存失败用例信息到: {failed_file.absolute()}")
-#
-#     # 3. 实际创建禅道bug
-#     if not DEBUG_MODE and _test_results['failed'] > 0:
-#         print("\n开始为失败用例创建禅道bug...")
-#         for failed_test in _test_results['failed_tests']:
-#             _create_zentaobug(failed_test)
 #
 #     # 保留原有的allure报告处理逻辑
 #     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
@@ -704,11 +689,6 @@ mapping.register(LocatorImpl, Locator)
 #             "openedBuild": "trunk"
 #         }
 #
-#         if DEBUG_MODE:
-#             # 调试模式下只打印不实际调用
-#             print("\n[调试模式] 模拟创建禅道bug:")
-#             print(json.dumps(bug_data, indent=2, ensure_ascii=False))
-#             return
 #
 #         # 实际调用代码
 #         response = requests.post(
@@ -964,18 +944,7 @@ def get_assignee_from_test_case(failed_test: dict) -> str:
 #     print(f"跳过数: {_test_results['skipped']}")
 #     print("="*50 + "\n")
 #
-#     # 2. 调试模式下保存失败用例到文件
-#     if DEBUG_MODE and _test_results['failed'] > 0:
-#         failed_file = Path(".failed_tests.json")
-#         with open(failed_file, 'w', encoding='utf-8') as f:
-#             json.dump(_test_results['failed_tests'], f, indent=2, ensure_ascii=False)
-#         print(f"[调试模式] 已保存失败用例信息到: {failed_file.absolute()}")
-#
-#     # 3. 实际创建禅道bug
-#     if not DEBUG_MODE and _test_results['failed'] > 0:
-#         print("\n开始为失败用例创建禅道bug...")
-#         for failed_test in _test_results['failed_tests']:
-#             _create_zentaobug(failed_test)
+
 #
 #     # 保留原有的allure报告处理逻辑
 #     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
@@ -1032,11 +1001,6 @@ def get_assignee_from_test_case(failed_test: dict) -> str:
 #             "openedBuild": "trunk"
 #         }
 #
-#         if DEBUG_MODE:
-#             # 调试模式下只打印不实际调用
-#             print("\n[调试模式] 模拟创建禅道bug:")
-#             print(json.dumps(bug_data, indent=2, ensure_ascii=False))
-#             return
 #
 #         # 实际调用代码
 #         response = requests.post(

@@ -8,7 +8,6 @@ from filelock import FileLock
 from playwright01.utils.GetPath import get_path
 from playwright01.utils.globalMap import GlobalMap
 from playwright01.data_module.auth_Data import MyData
-from utils.FileUploadUtils import FileUploadUtils
 from playwright01.module.BasePage import PageObject
 from playwright01.module.BaiduPage import Baidu
 from playwright01.module.LoginPage import LoginPage

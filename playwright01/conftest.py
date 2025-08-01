@@ -47,18 +47,6 @@ _test_results = {
     'failed_tests': []
 }
 
-# @pytest.fixture()
-# def hello_world():
-#     print("hello")
-#     yield
-#     print("world")
-#
-#
-# @pytest.fixture
-# def page(context: BrowserContext) -> Page:
-#     print("this is my page")
-#     return context.new_page()
-
 
 @pytest.fixture(scope="session", autouse=True)
 def test_init(base_url):
@@ -132,8 +120,10 @@ def pytest_addoption(parser: Any) -> None:
 
 @pytest.fixture(scope="session")
 def ui_timeout(pytestconfig):
+    global time_out
     timeout = float(pytestconfig.getoption("--ui_timeout"))
     expect.set_options(timeout=timeout)
+    time_out = timeout  # 确保赋值给全局变量
     return timeout
 
 

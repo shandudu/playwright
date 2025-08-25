@@ -4,6 +4,16 @@ import os
 import sys
 import time
 from pathlib import Path
+# vscode运行的时候，不加会有问题，搞不懂
+# 添加项目根目录到 Python 路径
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# 添加 playwright01 目录到 Python 路径
+playwright01_dir = os.path.dirname(os.path.abspath(__file__))
+if playwright01_dir not in sys.path:
+    sys.path.insert(0, playwright01_dir)
 
 from data_module import globalconfig
 from data_module.globalconfig import *
@@ -35,7 +45,7 @@ from playwright._impl._sync_base import mapping
 from playwright.sync_api._generated import Locator as _Locator
 import json
 from allure import step
-
+from utils.logger import logger
 from utils.http_util import HttpClient
 
 # 在全局变量区域添加
@@ -196,7 +206,8 @@ def new_context(
 
     def _new_context(**kwargs: Any) -> BrowserContext:
         #  获取重试的log策略并转成列表
-        _rerun_strategy = pytestconfig.getoption("--rerun_strategy").split(",")
+        rerun_strategy = pytestconfig.getoption("--rerun_strategy")
+        _rerun_strategy = rerun_strategy.split(",") if rerun_strategy else []
         #  获取重试次数,此处为2则为重试2次,加上第1次,一共跑3次
         _reruns = pytestconfig.getoption("--reruns")
         video_option = pytestconfig.getoption("--video")
@@ -209,7 +220,7 @@ def new_context(
             else:
                 _init_rerun_strategy = _rerun_strategy[:_reruns + 1]
             #  这里减1是因为request.node.execution_count从1开始,我们取列表下标从0开始
-            rerun_round = request.node.execution_count - 1
+            rerun_round = getattr(request.node, 'execution_count', 1) - 1
             _round_rerun_strategy = _init_rerun_strategy[rerun_round]
 
             #  这里先判断是否有log策略
@@ -274,7 +285,8 @@ class ArtifactsRecorder:
         self._all_pages: List[Page] = []
         self._screenshots: List[str] = []
         self._traces: List[str] = []
-        self._rerun_strategy = pytestconfig.getoption("--rerun_strategy").split(",")
+        rerun_strategy = pytestconfig.getoption("--rerun_strategy")
+        self._rerun_strategy = rerun_strategy.split(",") if rerun_strategy else []
         self._reruns = pytestconfig.getoption("--reruns")
         #  这里逻辑了上面的一致,不赘述了
         if self._rerun_strategy and self._reruns:
@@ -283,7 +295,7 @@ class ArtifactsRecorder:
             else:
                 self._init_rerun_strategy = self._rerun_strategy[:self._reruns + 1]
 
-            rerun_round = request.node.execution_count - 1
+            rerun_round = getattr(request.node, 'execution_count', 1) - 1
             self._round_rerun_strategy = self._init_rerun_strategy[rerun_round]
 
             #  以下为判断log策略内容和参数的方法,注意,如果没有则设置为off
@@ -317,7 +329,7 @@ class ArtifactsRecorder:
             failed: 测试是否失败
         """
         #  获取当前轮次并初始化一个字符串,给保存文件做前缀
-        round_prefix = f"round{self._request.node.execution_count}-"
+        round_prefix = f"round{getattr(self._request.node, 'execution_count', 1)}-"
         #  这里可以学习一下组合的布尔逻辑
         capture_screenshot = self._screenshot_option == "on" or (
                 failed and self._screenshot_option == "only-on-failure"
@@ -598,6 +610,77 @@ class Locator(_Locator):
 
 mapping.register(LocatorImpl, Locator)
 
+
+# --- 关键步骤：覆盖不安全的 delete_output_dir fixture ---
+# 这个空的 fixture 会“遮蔽”原始的 delete_output_dir，
+# 防止它在 worker 进程中执行不安全的删除操作。
+@pytest.fixture(scope="session", autouse=True)
+def delete_output_dir(pytestconfig: Any) -> None:
+    """
+    **OVERRIDE**: 覆盖原始的 delete_output_dir fixture。
+    我们不在此处执行任何删除操作，将其交给主进程在安全时机处理。
+    """
+    logger.info(" 原始的 delete_output_dir fixture 已被覆盖，跳过。")
+    yield  # 简单地提供一个空的 fixture
+    # teardown 阶段也什么都不做
+
+
+# --- 安全的主进程清理逻辑 ---
+def pytest_configure(config: pytest.Config) -> None:
+    """
+    在测试配置阶段，由主进程执行。
+    此时所有 worker 进程尚未启动，是清理和准备输出目录的最佳时机。
+    """
+    # 只在主进程执行
+    current_pid = os.getpid()
+    if hasattr(config, 'workerinput'):
+        logger.info(f" Worker进程 {config.workerinput['workerid']}-进程号-{current_pid} 跳过清理。")
+        return
+
+    output_dir = config.getoption("--output")
+    allure_report_dir = config.getoption("--alluredir")
+    if not output_dir:
+        logger.warning("--output 参数未指定，跳过输出目录清理。")
+        return
+
+    if not allure_report_dir:
+        logger.warning("--output 参数未指定，跳过输出目录清理。")
+        return
+
+    # 检查是否由 run.py 启动
+    is_run_by_script = os.environ.get("TEST_CLEANUP_DONE") == "1"
+
+    # 检查环境变量
+    # ---- 处理 output_dir (你的业务输出目录) ----
+    if output_dir:
+        if is_run_by_script:
+            # 信任 run.py 已清理，只确保存在
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f" (信任 run.py) 输出目录已就绪: {output_dir}")
+        else:
+            # 直接运行，必须自己清理
+            logger.info(f" 主进程-进程号-{current_pid} 进行清理。")
+            logger.info(f" (直接调用) 清理业务输出目录: {output_dir}")
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f" (直接调用) 业务输出目录已清理: {output_dir}")
+
+    # ---- 处理 allure_dir (Allure 报告目录) ----
+    if allure_report_dir:
+        # 关键：直接运行时才清理 allure_dir！
+        if is_run_by_script:
+            # 由 run.py 启动，相信它已清理，只确保存在
+            os.makedirs(allure_report_dir, exist_ok=True)
+            logger.info(f" (信任 run.py) Allure 目录已就绪: {allure_report_dir}")
+        else:
+            # 直接运行 pytest test_xxx.py，需要清理 allure_dir
+            logger.info(f" 主进程-进程号-{current_pid} 进行清理。")
+            logger.info(f" (直接调用) 清理 Allure 报告目录: {allure_report_dir}")
+            if os.path.exists(allure_report_dir):
+                shutil.rmtree(allure_report_dir)
+            os.makedirs(allure_report_dir, exist_ok=True)
+            logger.info(f" (直接调用) Allure 目录已清理: {allure_report_dir}")
 
 
 

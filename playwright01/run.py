@@ -176,6 +176,127 @@ def main():
     return exit_code
 
 
+
+
+
+
+
+import os
+import shutil
+import pytest
+from utils.logger import logger
+
+# 控制是否启用多线程
+enable_multi_threading = True
+
+
+def clear_directories():
+    dirs_to_clear = ["../.allure_report", "../.test_result"]
+    for d in dirs_to_clear:
+        if os.path.exists(d):
+            shutil.rmtree(d)
+            logger.info(f"(run.py文件直接调用) 清理 Allure 报告目录: {d}")
+        os.makedirs(d, exist_ok=True)
+        logger.info(f"(run.py文件直接调用) 重新生成 Allure 报告目录: {d}")
+
+
+if __name__ == "__main__":
+
+    # 设置环境变量，告诉 conftest.py "我已经清理过了"
+    os.environ["TEST_CLEANUP_DONE"] = "1"  # 关键！
+
+    clear_directories()  # 执行清理
+
+
+    if enable_multi_threading:
+        # 并行执行带 @pytest.mark.parallel 的用例（3个进程）
+        pytest.main([
+            "-m", "parallel",
+            "-n", "3",
+            "-v",
+            "--alluredir=../.allure_report",
+        ])
+
+        # 串行执行带 @pytest.mark.serial 的用例（主进程）
+        pytest.main([
+            "-m", "serial",
+            "-v",
+            "--alluredir=../.allure_report",
+        ])
+    else:
+        # 单线程运行全部用例
+        pytest.main([
+            "-v",
+            "--alluredir=../.allure_report",
+        ])
+
+
+def merge_allure_results():
+    """合并多个 allure 结果目录"""
+    print("📊 合并 Allure 测试结果...")
+    parallel_dir = PARALLEL_ALLURE_DIR
+    serial_dir = SERIAL_ALLURE_DIR
+    output_dir = ALLURE_REPORT_DIR + "/merged"
+
+    # 确保合并目录存在
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 复制所有 JSON 文件
+    import glob
+    for src_dir in [parallel_dir, serial_dir]:
+        if os.path.exists(src_dir):
+            for json_file in glob.glob(os.path.join(src_dir, "*.json")):
+                shutil.copy(json_file, output_dir)
+    return output_dir
+
+
+def generate_allure_report(merged_dir):
+    """生成并打开报告"""
+    print("📈 生成 Allure 报告...")
+    report_output = "./allure-report"
+    os.system(f"allure generate \"{merged_dir}\" -o \"{report_output}\" --clean")
+    os.system(f"allure open \"{report_output}\"")
+
+
+if __name__ == '__main__':
+    # 清空历史报告
+    if os.path.exists(ALLURE_REPORT_DIR):
+        shutil.rmtree(ALLURE_REPORT_DIR)
+
+    if enable_multi_threading:
+        # 启动并行任务（子进程）
+        p = Process(target=run_parallel)
+        p.start()
+
+        # 主进程运行串行部分
+        run_serial()
+
+        # 等待并行完成
+        p.join()
+
+        # 合并结果
+        merged_dir = merge_allure_results()
+
+        # 生成最终报告
+        generate_allure_report(merged_dir)
+
+    else:
+        # 单进程模式：全部用例一起执行
+        print("🧪 单线程模式运行所有测试...")
+        pytest.main([
+            "--alluredir", ALLURE_REPORT_DIR,
+            "-v"
+        ])
+        # 可选：生成报告
+        # os.system(f"allure generate \"{ALLURE_REPORT_DIR}\" -o \"./allure-report\" --clean")
+        # os.system("allure open ./allure-report")
+
+
+
+
+
+
+
 if __name__ == "__main__":
     exit_code = main()
     sys.exit(exit_code)

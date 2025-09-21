@@ -22,13 +22,13 @@ class MyData:
                              {"username": "winni", "password": "playwright001"},
                              # {"username": "xxx_98", "password": "syx201314"},
                          "测试经理":
-                             {"username": "zhang20121104", "password": "playwright123"},
+                             {"username": "xxx_98", "password": "syx201314"},
                          },
-                    "playwright0":
+                    "www":
                         {"测试员":
                              {"username": "winni1", "password": "playwright001"},
                          "测试经理":
-                             {"username": "tracy2012", "password": "playwright123"},
+                             {"username": "xxx_98", "password": "syx201314"},
                          },
                     }
 

@@ -1,16 +1,16 @@
 
 # 调试和报告配置
-DEBUG_MODE = True
+DEBUG_MODE = False
 # 测试用例失败时是否创建bug
-ENABLE_CAT2BUG_CREATION = False
+ENABLE_BUG_CREATION = True
 # 测试用例执行完是否生成allure报告
 ENABLE_ALLURE_REPORT = True
 
 
-
+BUG_URL = 'https://www.cat2bug.com:8022'
 BASE_URL = 'https://www.cat2bug.com:8022/prod-api'
-USER = 'demo'
-PWD = '123456'
+USER = 'xxx'
+PWD = 'xxx123456'
 
 
 
@@ -23,4 +23,4 @@ BUG_ASSIGNMENT_RULES = {
     'test_询报价流程_无PN申请转询价.py': 'DEV003'
 }
 
-DEFAULT_ASSIGNEE = 'DEFAULT_DEV'
+DEFAULT_ASSIGNEE = '454'

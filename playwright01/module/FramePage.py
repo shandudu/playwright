@@ -1,4 +1,6 @@
 from playwright01.module import *
+from utils.FileUploadUtils import FileUploadUtils
+
 
 class FramePage(PageObject):
     def __init__(self, page):

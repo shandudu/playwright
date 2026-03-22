@@ -1,12 +1,3 @@
-
-# import os
-# os.environ['PYTHONPATH'] = 'D:\\ythonProject\\playwright\\playwright01'
-# a = os.environ['PYTHONPATH']
-# # 添加项目根目录到系统路径
-# # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-#
-#
-# print(a)
 import sys
 import os
 

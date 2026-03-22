@@ -1,68 +1,85 @@
+# ============================================================================
+# 标准库
+# ============================================================================
 import hashlib
-import shutil
+import json
 import os
+import re
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
-# vscode运行的时候，不加会有问题，搞不懂
-# 添加项目根目录到 Python 路径
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+from typing import Any, Dict, Generator, List, Optional, cast
 
-# 添加 playwright01 目录到 Python 路径
-playwright01_dir = os.path.dirname(os.path.abspath(__file__))
-if playwright01_dir not in sys.path:
-    sys.path.insert(0, playwright01_dir)
-
-from data_module import globalconfig
-from data_module.globalconfig import *
-from typing import (
-    Any,
-    Dict,
-    Generator,
-    List,
-    Optional,
-    cast,
-)
-import pytest
-from playwright.sync_api import (
-    Browser,
-    BrowserContext,
-    Error,
-    Page,
-    Playwright,
-    expect,
-)
-from pytest_playwright.pytest_playwright import CreateContextCallback
-from slugify import slugify
-import tempfile
+# ============================================================================
+# 第三方库
+# ============================================================================
 import allure
-import re
-from playwright01.utils.globalMap import GlobalMap
+import pytest
+import requests
+from allure import step
+from bs4 import BeautifulSoup
+from filelock import FileLock, Timeout
+from playwright.sync_api import Browser, BrowserContext, Error, Page, Playwright, expect
+from playwright.sync_api._generated import Locator as _Locator
 from playwright._impl._locator import Locator as LocatorImpl
 from playwright._impl._sync_base import mapping
-from playwright.sync_api._generated import Locator as _Locator
-import json
-from allure import step
-from utils.logger import logger
-from utils.http_util import HttpClient
+from pytest_playwright.pytest_playwright import CreateContextCallback
+from slugify import slugify
 
-# 在全局变量区域添加
-_test_results = {
-    'total': 0,
-    'passed': 0,
-    'failed': 0,
-    'skipped': 0,
-    'failed_tests': []
-}
+# ============================================================================
+# 项目模块
+# ============================================================================
+from playwright01.data_module.globalconfig import *  # 如果需要访问 globalconfig.xxx
+from playwright01.utils.GetPath import get_path
+from playwright01.utils.bug_helper import BugHelper
+from playwright01.utils.globalMap import GlobalMap
+from playwright01.utils.logger import *
+from playwright01.utils.my_date import return_time_add_days
+from playwright01.utils.pattern_util import clean_title, clean_title_simple
 
+
+
+
+api_Count = []
+time_out = 60000 # 全局时间，Locator类使用
+
+
+def get_page_title(page: Page) -> str:
+    """兼容 page.title 为方法或字符串属性的场景。"""
+    title_attr = getattr(page, "title", "")
+    if callable(title_attr):
+        try:
+            return title_attr() or ""
+        except Exception:
+            return ""
+    return title_attr or ""
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """在每个测试开始前设置日志格式"""
+    # 设置 pytest 运行时的日志格式
+    # 影响 Allure 报告中显示的日志格式
+    # 通过修改 root logger 的处理器格式来实现
+    import logging
+    # 确保 root logger 使用我们想要的格式
+    formatter = logging.Formatter("%(levelname)s %(asctime)s %(name)s:%(filename)s:%(lineno)d %(message)s",
+                                  datefmt="%Y-%m-%d %H:%M:%S")
+
+    for handler in logging.root.handlers:
+        handler.setFormatter(formatter)
+
+# @pytest.fixture
+# def page(context: BrowserContext) -> Page:
+#     print("this is my page")
+#     return context.new_page()
 
 @pytest.fixture(scope="session", autouse=True)
 def test_init(base_url):
     global_map = GlobalMap()
     global_map.set("baseurl", base_url)
-    env = re.search("(https://)(.*)(.ezone.work)", base_url).group(2)
+    env = re.search("(https://www.)(.*)(.com)", base_url).group(2)
     global_map.set("env", env)
 
 
@@ -84,7 +101,6 @@ def browser_context_args(
     # capture_video = video_option in ["on", "retain-on-failure"]
     # if capture_video:
     #     context_args["record_video_dir"] = _pw_artifacts_folder.name
-
     return {
         **context_args,
         "viewport": {
@@ -103,7 +119,8 @@ def pytest_addoption(parser: Any) -> None:
     group.addoption(
         "--viewport",
         action="store",
-        default=[1440, 900],
+        # default=[1920, 1080],
+        default=[1024, 768],
         help="viewport size set",
         type=int,
         nargs=2,
@@ -130,10 +147,10 @@ def pytest_addoption(parser: Any) -> None:
 
 @pytest.fixture(scope="session")
 def ui_timeout(pytestconfig):
-    global time_out
     timeout = float(pytestconfig.getoption("--ui_timeout"))
     expect.set_options(timeout=timeout)
-    time_out = timeout  # 确保赋值给全局变量
+    global time_out
+    time_out = float(pytestconfig.getoption("--ui_timeout"))
     return timeout
 
 
@@ -148,7 +165,7 @@ def pytest_runtest_makereport(item):
                     if page.is_closed():
                         continue
                     bytes_png = page.screenshot(timeout=5000, full_page=True)
-                    allure.attach(bytes_png, f"失败截图---{page.title()}")
+                    allure.attach(bytes_png, f"失败截图---{get_page_title(page)}")
         except:
             ...
 
@@ -199,15 +216,17 @@ def new_context(
         _pw_artifacts_folder: tempfile.TemporaryDirectory,
 ) -> Generator[CreateContextCallback, None, None]:
     browser_context_args = browser_context_args.copy()
+    browser_context_args["ignore_https_errors"] = True
     context_args_marker = next(request.node.iter_markers("browser_context_args"), None)
     additional_context_args = context_args_marker.kwargs if context_args_marker else {}
     browser_context_args.update(additional_context_args)
     contexts: List[BrowserContext] = []
 
     def _new_context(**kwargs: Any) -> BrowserContext:
+        #  复制browser_context_args,防止污染参数
+        browser_context_args_copy = browser_context_args.copy()
         #  获取重试的log策略并转成列表
-        rerun_strategy = pytestconfig.getoption("--rerun_strategy")
-        _rerun_strategy = rerun_strategy.split(",") if rerun_strategy else []
+        _rerun_strategy = pytestconfig.getoption("--rerun_strategy").split(",")
         #  获取重试次数,此处为2则为重试2次,加上第1次,一共跑3次
         _reruns = pytestconfig.getoption("--reruns")
         video_option = pytestconfig.getoption("--video")
@@ -220,7 +239,7 @@ def new_context(
             else:
                 _init_rerun_strategy = _rerun_strategy[:_reruns + 1]
             #  这里减1是因为request.node.execution_count从1开始,我们取列表下标从0开始
-            rerun_round = getattr(request.node, 'execution_count', 1) - 1
+            rerun_round = request.node.execution_count - 1
             _round_rerun_strategy = _init_rerun_strategy[rerun_round]
 
             #  这里先判断是否有log策略
@@ -233,12 +252,12 @@ def new_context(
                 video_option = "off"
         #  这里只判断了video,是因为创建context时必须设置record_video_dir后才开始主动录屏
         capture_video = video_option in ["on", "retain-on-failure"]
-        browser_context_args.update(kwargs)
+        browser_context_args_copy.update(kwargs)
         if capture_video:
             video_option_dict = {"record_video_dir": _pw_artifacts_folder.name}
             #  字典的update可以直接传字典,也可以解包,解包相当于kwargs
-            browser_context_args.update(video_option_dict)
-        my_context = browser.new_context(**browser_context_args)
+            browser_context_args_copy.update(video_option_dict)
+        my_context = browser.new_context(**browser_context_args_copy)
         my_context.set_default_timeout(ui_timeout)
         my_context.set_default_navigation_timeout(ui_timeout * 2)
         original_close = my_context.close
@@ -257,7 +276,7 @@ def new_context(
     for context in contexts.copy():
         context.close()
 
-
+# _pw_artifacts_folder 注意这个值 当报错信息出现这种用户名导致的路径错误时 C:\\Users\\xxx_DA~1\\AppData\\Local\\Temp\\6\\playwright-pytest-4wba_jsy
 class ArtifactsRecorder:
     def __init__(
             self,
@@ -266,27 +285,16 @@ class ArtifactsRecorder:
             playwright: Playwright,
             pw_artifacts_folder: tempfile.TemporaryDirectory,
     ) -> None:
-        """
-        初始化 ArtifactsRecorder 类。
-
-        Args:
-            pytestconfig: pytest 配置对象
-            request: pytest 测试请求对象
-            playwright: Playwright 对象
-            pw_artifacts_folder: 用于存储测试过程中生成的工件的临时目录
-
-        """
-
         self._request = request
         self._pytestconfig = pytestconfig
         self._playwright = playwright
         self._pw_artifacts_folder = pw_artifacts_folder
-
+        # tempfile.py _candidate_tempdir_list的_os.getenv(envname)调用os.py的getenv方法
+        self._pw_artifacts_folder.name = 'F:\\pythonProject\\ui-playwright\\.temp\\Temp'
         self._all_pages: List[Page] = []
         self._screenshots: List[str] = []
         self._traces: List[str] = []
-        rerun_strategy = pytestconfig.getoption("--rerun_strategy")
-        self._rerun_strategy = rerun_strategy.split(",") if rerun_strategy else []
+        self._rerun_strategy = pytestconfig.getoption("--rerun_strategy").split(",")
         self._reruns = pytestconfig.getoption("--reruns")
         #  这里逻辑了上面的一致,不赘述了
         if self._rerun_strategy and self._reruns:
@@ -295,7 +303,7 @@ class ArtifactsRecorder:
             else:
                 self._init_rerun_strategy = self._rerun_strategy[:self._reruns + 1]
 
-            rerun_round = getattr(request.node, 'execution_count', 1) - 1
+            rerun_round = request.node.execution_count - 1
             self._round_rerun_strategy = self._init_rerun_strategy[rerun_round]
 
             #  以下为判断log策略内容和参数的方法,注意,如果没有则设置为off
@@ -320,16 +328,8 @@ class ArtifactsRecorder:
             self._capture_trace = self._tracing_option in ["on", "retain-on-failure"]
 
     def did_finish_test(self, failed: bool) -> None:
-        """
-        在测试完成时执行的方法。
-
-        根据测试是否失败以及配置的日志策略,保存截图、录制的跟踪信息和视频。
-
-        Args:
-            failed: 测试是否失败
-        """
         #  获取当前轮次并初始化一个字符串,给保存文件做前缀
-        round_prefix = f"round{getattr(self._request.node, 'execution_count', 1)}-"
+        round_prefix = f"round{self._request.node.execution_count}-"
         #  这里可以学习一下组合的布尔逻辑
         capture_screenshot = self._screenshot_option == "on" or (
                 failed and self._screenshot_option == "only-on-failure"
@@ -345,13 +345,27 @@ class ArtifactsRecorder:
                 )
                 #  这里这种写法注意下,如果自己需要放log,用这个方式创建很好
                 os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
-                shutil.move(screenshot, screenshot_path)
-                # shutil.copy(screenshot, screenshot_path)
+                # 路径问题
+                try:
+                    shutil.move(screenshot, screenshot_path)
+                    print(f"File not found: {screenshot} and {screenshot_path}")
+                except FileNotFoundError:
+                    pass
                 # allure附加图片文件的方法
-                allure.attach.file(screenshot_path, f"{round_prefix}{index + 1}-{human_readable_status}-{screenshot.split(os.sep)[-1]}.png")
+                try:
+                    allure.attach.file(screenshot_path, f"{round_prefix}{index + 1}-{human_readable_status}-{screenshot.split(os.sep)[-1]}.png")
+                except FileNotFoundError:
+                    pass
         else:
             for screenshot in self._screenshots:
-                os.remove(screenshot)
+                if os.path.isfile(screenshot):
+                    # 路径问题
+                    try:
+                        os.remove(screenshot)
+                    except FileNotFoundError:
+                        print(f"File not found: {screenshot}")
+                else:
+                    print(f"File does not exist: {screenshot}")
 
         if self._tracing_option == "on" or (
                 failed and self._tracing_option == "retain-on-failure"
@@ -381,41 +395,70 @@ class ArtifactsRecorder:
                     continue
                 try:
                     # 获取页面标题并处理非法字符
-                    page_title = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', page.title())[:30]
+                    page_title = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', get_page_title(page))[:30] or "untitled"
                     video_file_name = (
                         f"{round_prefix}video.webm"
                         if len(self._all_pages) == 1
                         else f"{round_prefix}video-{index + 1}-{page_title}.webm"
                     )
+                    # video_file_name = (
+                    #     f"{round_prefix}video.webm"
+                    #     if len(self._all_pages) == 1
+                    #     else f"{round_prefix}video-{index + 1}.webm"
+                    # )
                     video.save_as(
                         path=_build_artifact_test_folder(
                             self._pytestconfig, self._request, video_file_name
                         )
                     )
-
-                    # 自定义 allure 附件名称
-                    custom_video_title = f"过程录像_{page_title}_{round_prefix}video{index + 1}"
-                    allure.attach.file(
-                        _build_artifact_test_folder(self._pytestconfig, self._request, video_file_name),
-                        custom_video_title,
-                        allure.attachment_type.WEBM
-                    )
+                    # allure附加webm录像的方法
+                    allure.attach.file(_build_artifact_test_folder(
+                        self._pytestconfig, self._request, video_file_name
+                    ), page_title, allure.attachment_type.WEBM)
                 except Error:
                     # Silent catch empty videos.
                     pass
+        else:
+            for page in self._all_pages:
+                # Can be changed to "if page.video" without try/except once https://github.com/microsoft/playwright-python/pull/2410 is released and widely adopted.
+                if self._video_option in ["on", "retain-on-failure"]:
+                    try:
+                        page.video.delete()
+                    except Error:
+                        pass
 
     def on_did_create_browser_context(self, context: BrowserContext) -> None:
-        """
-        在即将关闭浏览器上下文时执行的方法。
-
-        停止录制跟踪信息,并根据配置保存截图。
-
-        Args:
-            context: 即将关闭的浏览器上下文
-        """
-
         #  上下文里监听,有新的page就添加到列表中
+        base_url = GlobalMap().get("baseurl")
         context.on("page", lambda page: self._all_pages.append(page))
+        global api_Count
+
+        def on_page(page: Page):
+            def on_clear(my_page: Page):
+                try:
+                    api_Count.clear()
+                    my_page.wait_for_timeout(500)
+                except:
+                    pass
+
+            # pages.append(page)
+            page.on("close", on_clear)
+            page.on("load", on_clear)
+
+        def on_add_request(req):
+            if any(fix in req.url for fix in [base_url]):
+                api_Count.append(req.url)
+
+        def on_remove_request(req):
+            try:
+                api_Count.remove(req.url)
+            except:
+                pass
+
+        context.on("page", on_page)
+        context.on("request", on_add_request)
+        context.on("requestfinished", on_remove_request)
+        context.on("requestfailed", on_remove_request)
         #  判断是否需要trace,如果需要,就开始录制
         if self._request and self._capture_trace:
             context.tracing.start(
@@ -439,10 +482,19 @@ class ArtifactsRecorder:
             for page in context.pages:
                 #  这里用try是因为有可能page已经关闭了
                 try:
+                    # 修改路径在这个错误中，OSError: [Errno 22] Invalid argument 指出了在尝试打开文件进行写入时出现了问题。具体来说，文件名
+                    # page.title = re.sub(r'\s+\d{2}:\d{2}:\d{2}$', '', page.title())
+                    # 完整清理（可配置）
+                    page.title = clean_title(
+                        get_page_title(page),
+                        preserve_brackets=False  # 是否保留括号内容
+                    )
+                    # page.title = "".join([page.title(), str(time.time_ns())])
+                    page.title = "".join([page.title, str(time.time_ns())])
                     screenshot_path = (
                         # Path(self._pw_artifacts_folder.name) / create_guid()
-                        # Path(self._pw_artifacts_folder.name) / page.title()
-                        Path(self._pw_artifacts_folder.name) / "".join([page.title()[:10], str(time.time_ns())])
+                        # Path(self._pw_artifacts_folder.name) / "".join([page.title(), str(time.time_ns())])
+                            Path(self._pw_artifacts_folder.name) /  page.title
                     )
                     page.screenshot(
                         timeout=5000,
@@ -461,9 +513,97 @@ def create_guid() -> str:
 
 
 
+ # --- 关键步骤：覆盖不安全的 delete_output_dir fixture ---
+# 这个空的 fixture 会“遮蔽”原始的 delete_output_dir，
+# 防止它在 worker 进程中执行不安全的删除操作。
+@pytest.fixture(scope="session", autouse=True)
+def delete_output_dir(pytestconfig: Any) -> None:
+    """
+    **OVERRIDE**: 覆盖原始的 delete_output_dir fixture。
+    我们不在此处执行任何删除操作，将其交给主进程在安全时机处理。
+    """
+    logger.info(" 原始的 delete_output_dir fixture 已被覆盖，跳过。")
+    yield  # 简单地提供一个空的 fixture
+    # teardown 阶段也什么都不做
+
+
+# --- 安全的主进程清理逻辑 ---
+def pytest_configure(config: pytest.Config) -> None:
+    """
+    在测试配置阶段，由主进程执行。
+    此时所有 worker 进程尚未启动，是清理和准备输出目录的最佳时机。
+    """
+    # 只在主进程执行
+    current_pid = os.getpid()
+    if hasattr(config, 'workerinput'):
+        logger.info(f" Worker进程 {config.workerinput['workerid']}-进程号-{current_pid} 跳过清理。")
+        return
+
+    output_dir = config.getoption("--output")
+    allure_report_dir = config.getoption("--alluredir")
+    if not output_dir:
+        logger.warning("--output 参数未指定，跳过输出目录清理。")
+        return
+
+    if not allure_report_dir:
+        logger.warning("--output 参数未指定，跳过输出目录清理。")
+        return
+
+    # 检查是否由 run.py 启动
+    is_run_by_script = os.environ.get("TEST_CLEANUP_DONE") == "1"
+
+    # ---- 清理禅道bug相关的临时文件 ----
+    try:
+        bug_temp_dir = BugHelper.get_bug_temp_dir()
+        if not is_run_by_script:
+            # 直接运行时清理禅道bug相关的临时文件
+            if os.path.exists(bug_temp_dir):
+                shutil.rmtree(bug_temp_dir)
+                logger.info(f" 清理bug临时目录: {bug_temp_dir}")
+            os.makedirs(bug_temp_dir, exist_ok=True)
+            logger.info(f" 创建bug临时目录: {bug_temp_dir}")
+    except Exception as e:
+        logger.warning(f" 清理bug临时文件时出错: {e}")
+
+
+    # 检查环境变量
+    # ---- 处理 output_dir (你的业务输出目录) ----
+    if output_dir:
+        if is_run_by_script:
+            # 信任 run.py 已清理，只确保存在
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f" (信任 run.py) 输出目录已就绪: {output_dir}")
+        else:
+            # 直接运行，必须自己清理
+            logger.info(f" 主进程-进程号-{current_pid} 进行清理。")
+            logger.info(f" (直接调用) 清理业务输出目录: {output_dir}")
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f" (直接调用) 业务输出目录已清理: {output_dir}")
+
+    # ---- 处理 allure_dir (Allure 报告目录) ----
+    if allure_report_dir:
+        # 关键：直接运行时才清理 allure_dir！
+        if is_run_by_script:
+            # 由 run.py 启动，相信它已清理，只确保存在
+            os.makedirs(allure_report_dir, exist_ok=True)
+            logger.info(f" (信任 run.py) Allure 目录已就绪: {allure_report_dir}")
+        else:
+            # 直接运行 pytest test_xxx.py，需要清理 allure_dir
+            logger.info(f" 主进程-进程号-{current_pid} 进行清理。")
+            logger.info(f" (直接调用) 清理 Allure 报告目录: {allure_report_dir}")
+            if os.path.exists(allure_report_dir):
+                shutil.rmtree(allure_report_dir)
+            os.makedirs(allure_report_dir, exist_ok=True)
+            logger.info(f" (直接调用) Allure 目录已清理: {allure_report_dir}")
+
+
 class Locator(_Locator):
+    # 这是一个私有属性，用于存储上一步操作的名称
     __last_step = None
 
+    # @property装饰器：这个装饰器用于将一个方法转换为属性，这样可以通过简单的属性访问来调用方法。
     @property
     def selector(self):
         _repr = self.__repr__()
@@ -482,6 +622,7 @@ class Locator(_Locator):
             return " >> ".join(__selector)
 
     def __getattribute__(self, attr):
+        # 这个方法在访问对象的属性时被调用。它拦截了对属性的访问，并在属性是可调用的（即方法）时，返回一个包装器函数。这个包装器函数会在执行原始方法之前等待页面加载完成，并处理一些额外的逻辑，比如记录操作步骤和处理超时情况。
         global api_Count
         global time_out
         try:
@@ -489,19 +630,18 @@ class Locator(_Locator):
             if callable(orig_attr):
 
                 def wrapped(*args, **kwargs):
+                    # 这是一个内部函数，它是__getattribute__方法返回的包装器函数。它在执行原始方法之前等待页面加载完成，并处理一些额外的逻辑，比如记录操作步骤和处理超时情况。
                     step_title = None
                     if attr == "_sync" and self.__last_step:
                         step_title = self.__last_step
                     else:
                         self.__last_step = attr
                     start_time = time.time()
-                    global 最后操作的page
-                    最后操作的page = self.page
                     while True:
                         self.page.wait_for_load_state()
                         if time.time() - start_time < int(time_out / 1333):
                             try:
-                                if attr in ["click", "fill", "hover", "check", "blur", "focus"]:
+                                if attr in ["click", "fill", "hover", "check", "blur", "focus", "input_value"]:
                                     self.page.wait_for_timeout(100)
                                     api_length = len(api_Count)
                                     if api_Count:
@@ -527,6 +667,11 @@ class Locator(_Locator):
                                     else:
                                         # 在这里可以添加自己需要等待或者处理的动作,比如等待转圈,关闭弹窗等等(当然,弹窗最好单独做个监听)
                                         self.page.locator("//*[contains(@class, 'spin-dot-spin')]").locator("visible=true").last.wait_for(state="hidden", timeout=30_000)
+                                        self.page.locator('//div[@class="el-loading-mask"]/div[@class="el-loading-spinner"]/p[text()="保存数据中..."]').locator("visible=true").last.wait_for(state="hidden", timeout=30_000)
+                                        self.page.locator("//*[contains(@class, 'el-icon-loading')]").locator("visible=true").last.wait_for(state="hidden", timeout=30_000)
+                                        self.page.locator("//*[contains(@class, 'el-loading-mask')]").locator("visible=true").last.wait_for(state="hidden", timeout=60_000)
+                                        self.page.locator('//p[contains(@class, "el-loading-text") and text()="Loading..."]').locator("visible=true").last.wait_for(state="hidden", timeout=60_000)
+                                        self.page.locator('//div[@class="el-loading-mask"]/div[@class="el-loading-spinner"]').locator("visible=true").last.wait_for(state="hidden", timeout=60_000)
                                         if self.page.locator('//div[@class="antHcbm_routesDashboardCardsHcbmCards_down"][text()="关闭"]').locator("visible=true").or_(self.page.locator(".driver-close-btn").filter(has_text="关闭").locator("visible-true")).count():
                                             self.page.locator('//div[@class="antHcbm_routesDashboardCardsHcbmCards_down"][text()="关闭"]').locator("visible=true").or_(self.page.locator(".driver-close-btn").filter(has_text="关闭").locator("visible-true")).last.evaluate("node => node.click()")
                                         self.page.evaluate('''() => {
@@ -597,7 +742,8 @@ class Locator(_Locator):
                             api_Count.clear()
                             break
 
-                    if step_title:
+                    # if step_title amd step_title != "wait_for" and step_title != "count":  #可以出去allure报告里 wait和count的sub-steps
+                    if step_title and step_title != "wait_for" and step_title != "count":
                         with step(f"{step_title}: {self.selector}"):
                             return orig_attr(*args, **kwargs)
                     return orig_attr(*args, **kwargs)
@@ -609,231 +755,492 @@ class Locator(_Locator):
 
 
 mapping.register(LocatorImpl, Locator)
+# 这行代码注册了一个映射，将LocatorImpl类与Locator类关联起来。这可能是用于依赖注入或其他类似的模式，以便在需要定位器的地方使用Locator类的实例。
+# 总的来说，这段代码是一个自定义的定位器类，它提供了一种更灵活和强大的方式来处理页面元素的定位和操作。它通过拦截属性访问和包装方法调用来实现这些功能，并且它还处理了一些常见的问题，比如等待页面加载和处理超时情况。
 
 
-# --- 关键步骤：覆盖不安全的 delete_output_dir fixture ---
-# 这个空的 fixture 会“遮蔽”原始的 delete_output_dir，
-# 防止它在 worker 进程中执行不安全的删除操作。
-@pytest.fixture(scope="session", autouse=True)
-def delete_output_dir(pytestconfig: Any) -> None:
+# 统计用例执行情况的数据 - 按环境分离
+_test_results_by_env = {
+    'jenkins': {
+        'total': 0,
+        'passed': 0,
+        'failed': 0,
+        'skipped': 0,
+        'failed_tests': [],
+        'by_file': {},
+        'by_module': {}
+    },
+    'local': {
+        'total': 0,
+        'passed': 0,
+        'failed': 0,
+        'skipped': 0,
+        'failed_tests': [],
+        'by_file': {},
+        'by_module': {}
+    }
+}
+# 当前运行环境
+_current_env = None
+
+
+def detect_run_environment():
     """
-    **OVERRIDE**: 覆盖原始的 delete_output_dir fixture。
-    我们不在此处执行任何删除操作，将其交给主进程在安全时机处理。
+    检测运行环境
+    返回：'jenkins' 或 'local'
     """
-    logger.info(" 原始的 delete_output_dir fixture 已被覆盖，跳过。")
-    yield  # 简单地提供一个空的 fixture
-    # teardown 阶段也什么都不做
+    jenkins_indicators = [
+        os.getenv('BUILD_NUMBER'),
+        os.getenv('JOB_NAME'),
+        os.getenv('JENKINS_URL'),
+        os.getenv('WORKSPACE'),
+        os.getenv('NODE_NAME')
+    ]
+
+    if any(indicator for indicator in jenkins_indicators):
+        return 'jenkins'
+    else:
+        return 'local'
 
 
-# --- 安全的主进程清理逻辑 ---
-def pytest_configure(config: pytest.Config) -> None:
+def collect_run_info(environment):
     """
-    在测试配置阶段，由主进程执行。
-    此时所有 worker 进程尚未启动，是清理和准备输出目录的最佳时机。
+    收集运行环境信息
     """
-    # 只在主进程执行
-    current_pid = os.getpid()
-    if hasattr(config, 'workerinput'):
-        logger.info(f" Worker进程 {config.workerinput['workerid']}-进程号-{current_pid} 跳过清理。")
-        return
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    output_dir = config.getoption("--output")
-    allure_report_dir = config.getoption("--alluredir")
-    if not output_dir:
-        logger.warning("--output 参数未指定，跳过输出目录清理。")
-        return
-
-    if not allure_report_dir:
-        logger.warning("--output 参数未指定，跳过输出目录清理。")
-        return
-
-    # 检查是否由 run.py 启动
-    is_run_by_script = os.environ.get("TEST_CLEANUP_DONE") == "1"
-
-    # 检查环境变量
-    # ---- 处理 output_dir (你的业务输出目录) ----
-    if output_dir:
-        if is_run_by_script:
-            # 信任 run.py 已清理，只确保存在
-            os.makedirs(output_dir, exist_ok=True)
-            logger.info(f" (信任 run.py) 输出目录已就绪: {output_dir}")
-        else:
-            # 直接运行，必须自己清理
-            logger.info(f" 主进程-进程号-{current_pid} 进行清理。")
-            logger.info(f" (直接调用) 清理业务输出目录: {output_dir}")
-            if os.path.exists(output_dir):
-                shutil.rmtree(output_dir)
-            os.makedirs(output_dir, exist_ok=True)
-            logger.info(f" (直接调用) 业务输出目录已清理: {output_dir}")
-
-    # ---- 处理 allure_dir (Allure 报告目录) ----
-    if allure_report_dir:
-        # 关键：直接运行时才清理 allure_dir！
-        if is_run_by_script:
-            # 由 run.py 启动，相信它已清理，只确保存在
-            os.makedirs(allure_report_dir, exist_ok=True)
-            logger.info(f" (信任 run.py) Allure 目录已就绪: {allure_report_dir}")
-        else:
-            # 直接运行 pytest test_xxx.py，需要清理 allure_dir
-            logger.info(f" 主进程-进程号-{current_pid} 进行清理。")
-            logger.info(f" (直接调用) 清理 Allure 报告目录: {allure_report_dir}")
-            if os.path.exists(allure_report_dir):
-                shutil.rmtree(allure_report_dir)
-            os.makedirs(allure_report_dir, exist_ok=True)
-            logger.info(f" (直接调用) Allure 目录已清理: {allure_report_dir}")
+    if environment == 'jenkins':
+        return {
+            'environment': 'jenkins',
+            'timestamp': timestamp,
+            'build_number': os.getenv('BUILD_NUMBER', 'unknown'),
+            'job_name': os.getenv('JOB_NAME', 'unknown'),
+            'jenkins_url': os.getenv('JENKINS_URL', ''),
+            'workspace': os.getenv('WORKSPACE', ''),
+            'node_name': os.getenv('NODE_NAME', ''),
+            'executor_number': os.getenv('EXECUTOR_NUMBER', ''),
+            'git_commit': os.getenv('GIT_COMMIT', ''),
+            'git_branch': os.getenv('GIT_BRANCH', '')
+        }
+    else:
+        # 本地运行信息
+        ide_name = detect_ide()
+        return {
+            'environment': 'local',
+            'timestamp': timestamp,
+            'user': os.getenv('USERNAME', os.getenv('USER', 'unknown')),
+            'hostname': os.getenv('COMPUTERNAME', os.getenv('HOSTNAME', 'unknown')),
+            'ide': ide_name,
+            'python_version': sys.version,
+            'working_directory': os.getcwd()
+        }
 
 
+def detect_ide():
+    """
+    检测当前使用的 IDE
+    """
+    # PyCharm
+    if os.getenv('PYCHARM_HOSTED') == '1':
+        return 'PyCharm'
+
+    # VSCode
+    if os.getenv('TERM_PROGRAM') == 'vscode':
+        return 'VSCode'
+
+    # IntelliJ IDEA
+    if os.getenv('IDEA_INITIAL_DIRECTORY'):
+        return 'IntelliJ IDEA'
+
+    # 默认
+    return 'Unknown/Command Line'
 
 
-# """
-# 在文件顶部导入部分添加requests
-# import requests
-# from typing import Dict, List
-#
-#
-# @pytest.hookimpl(trylast=True)
-# def pytest_sessionfinish(session, exitstatus):
-#     """增强的测试结束处理"""
-#     global _test_results
-#
-#     # 1. 打印美观的统计结果
-#     print("\n" + "="*50)
-#     print("测试执行统计".center(50))
-#     print("-"*50)
-#     print(f"总用例数: {_test_results['total']}")
-#     print(f"通过数: \033[32m{_test_results['passed']}\033[0m")
-#     print(f"失败数: \033[31m{_test_results['failed']}\033[0m")
-#     print(f"跳过数: {_test_results['skipped']}")
-#     print("="*50 + "\n")
-#
-#
-#     # 保留原有的allure报告处理逻辑
-#     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-#     if allure_report_auto_open_config != "off":
-#         if sys.platform != "linux":
-#             import subprocess
-#             import psutil
-#             import time
-#             def kill_existing_allure_processes():
-#                 '''关闭所有运行中的 allure serve 进程'''
-#                 killed = False
-#                 for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-#                     try:
-#                         cmdline = proc.info['cmdline']
-#                         # 确保是 allure serve 进程
-#                         if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
-#                             print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
-#                             psutil.Process(proc.info['pid']).terminate()
-#                             killed = True
-#                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-#                         continue
-#
-#                 if killed:
-#                     # 给进程一点时间来完全终止
-#                     time.sleep(1)
-#                 return killed
-#
-#             try:
-#                 # 先尝试关闭已存在的 allure 进程
-#                 kill_existing_allure_processes()
-#
-#                 # 启动新的 allure 服务
-#                 allure_command = f'allure serve {allure_report_auto_open_config}'
-#                 print(f"Starting new Allure server: {allure_command}")
-#                 subprocess.Popen(allure_command, shell=True)
-#
-#             except Exception as e:
-#                 print(f"Error managing Allure process: {str(e)}")
-#
-# # """
-#
-#
-# def _create_zentaobug(failed_test: Dict) -> None:
-#     """创建禅道bug的调试友好版本"""
-#     try:
-#         bug_data = {
-#             "product": "自动化测试",
-#             "module": "Playwright测试",
-#             "title": f"自动化测试失败: {failed_test['name']}",
-#             "steps": f"测试用例 {failed_test['nodeid']} 执行失败\n\n"
-#                     f"错误信息:\n{failed_test.get('error', '无详细错误信息')}",
-#             "severity": 3,
-#             "pri": 2,
-#             "openedBuild": "trunk"
-#         }
-#
-#
-#         # 实际调用代码
-#         response = requests.post(
-#             "http://your-zentao-api/bug-create",
-#             json=bug_data,
-#             headers={
-#                 "Content-Type": "application/json",
-#                 "Authorization": "Bearer your_token"
-#             }
-#         )
-#         response.raise_for_status()
-#         print(f"成功创建禅道bug: {response.json()}")
-#     except Exception as e:
-#         print(f"创建禅道bug失败: {str(e)}")
-#
+def save_statistics(statistics_data):
+    """
+    根据环境保存到不同位置，并合并历史数据
+    """
+    env = statistics_data['environment']
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
 
-# import pytest
-#
-# def pytest_collection_modifyitems(config, items):
-#     """根据标记重新排序测试项"""
-#     # 分离并行和串行用例
-#     parallel = []
-#     serial = []
-#
-#     for item in items:
-#         if item.get_closest_marker("parallel"):
-#             parallel.append(item)
-#         else:
-#             serial.append(item)
-#
-#     # 先执行并行用例，后执行串行用例
-#     items[:] = parallel + serial
+    # 基础目录 - logs 目录
+    base_dir = '../logs'
+
+    # 按环境分目录
+    if env == 'jenkins':
+        env_dir = os.path.join(base_dir, 'jenkins_stats')
+        build_num = statistics_data['run_info'].get('build_number', 'unknown')
+        filename_prefix = f'summary_build_{build_num}_{timestamp}'
+        history_file = os.path.join(env_dir, 'history_total.json')
+    else:
+        env_dir = os.path.join(base_dir, 'local_stats')
+        filename_prefix = f'summary_{timestamp}'
+        history_file = os.path.join(env_dir, 'history_total.json')
+
+    # 确保目录存在
+    os.makedirs(env_dir, exist_ok=True)
+
+    # ---- 保存当次运行结果 ----
+    json_file = os.path.join(env_dir, f'{filename_prefix}.json')
+    with open(json_file, 'w', encoding='utf-8') as f:
+        json.dump(statistics_data, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"当次统计数据已保存到：{json_file}")
+
+    # ---- 合并历史数据 ----
+    historical_data = load_historical_data(history_file, env)
+
+    # 更新历史总计
+    updated_history = merge_historical_data(historical_data, statistics_data)
+
+    # 保存更新后的历史数据
+    with open(history_file, 'w', encoding='utf-8') as f:
+        json.dump(updated_history, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"历史统计数据已更新到：{history_file}")
+
+    # ---- 更新最新结果文件 ----
+    latest_file = os.path.join(env_dir, 'latest_summary.json')
+    with open(latest_file, 'w', encoding='utf-8') as f:
+        # 包含当次数据和历史总计
+        combined_data = {
+            'current_run': statistics_data,
+            'historical_total': updated_history
+        }
+        json.dump(combined_data, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"最新统计已更新到：{latest_file}")
 
 
-# 替换原有的 pytest_sessionfinish 函数
+def load_historical_data(history_file, env):
+    """
+    加载历史数据
+    """
+    default_history = {
+        'environment': env,
+        'first_run_time': None,
+        'last_run_time': None,
+        'total_runs': 0,
+        'runs_detail': [],  # 记录每次运行的简要信息
+        'cumulative': {
+            'total': 0,
+            'passed': 0,
+            'failed': 0,
+            'skipped': 0,
+            'success_rate': 0.0
+        },
+        'by_file': {},
+        'by_module': {}
+    }
+
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data
+        except Exception as e:
+            logger.warning(f"加载历史数据失败：{e}，使用默认值")
+            return default_history
+    else:
+        return default_history
+
+
+def merge_historical_data(historical_data, current_data):
+    """
+    合并历史数据和当前运行数据
+    """
+    from datetime import datetime
+
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # 更新基本信息
+    if not historical_data['first_run_time']:
+        historical_data['first_run_time'] = current_time
+    historical_data['last_run_time'] = current_time
+    historical_data['total_runs'] += 1
+
+    # 记录本次运行的简要信息
+    run_detail = {
+        'timestamp': current_time,
+        'total': current_data['results']['total'],
+        'passed': current_data['results']['passed'],
+        'failed': current_data['results']['failed'],
+        'skipped': current_data['results']['skipped'],
+        'success_rate': current_data['success_rate']
+    }
+
+    # 如果是 Jenkins，添加构建号
+    if current_data['environment'] == 'jenkins':
+        run_detail['build_number'] = current_data['run_info'].get('build_number', 'unknown')
+    else:
+        run_detail['ide'] = current_data['run_info'].get('ide', 'unknown')
+
+    historical_data['runs_detail'].append(run_detail)
+
+    # 只保留最近 100 次的详细信息
+    if len(historical_data['runs_detail']) > 100:
+        historical_data['runs_detail'] = historical_data['runs_detail'][-100:]
+
+    # 累加总计数据
+    historical_data['cumulative']['total'] += current_data['results']['total']
+    historical_data['cumulative']['passed'] += current_data['results']['passed']
+    historical_data['cumulative']['failed'] += current_data['results']['failed']
+    historical_data['cumulative']['skipped'] += current_data['results']['skipped']
+
+    # 重新计算历史成功率
+    total = historical_data['cumulative']['total']
+    passed = historical_data['cumulative']['passed']
+    historical_data['cumulative']['success_rate'] = (passed / total * 100) if total > 0 else 0
+
+    # 合并按文件统计的数据
+    for file_name, stats in current_data['results'].get('by_file', {}).items():
+        if file_name not in historical_data['by_file']:
+            historical_data['by_file'][file_name] = {
+                'total': 0,
+                'passed': 0,
+                'failed': 0,
+                'skipped': 0,
+                'success_rate': 0.0
+            }
+
+        hist_file = historical_data['by_file'][file_name]
+        hist_file['total'] += stats['total']
+        hist_file['passed'] += stats['passed']
+        hist_file['failed'] += stats['failed']
+        hist_file['skipped'] += stats['skipped']
+        hist_file['success_rate'] = (hist_file['passed'] / hist_file['total'] * 100) if hist_file['total'] > 0 else 0
+
+    # 合并按模块统计的数据
+    for module_name, stats in current_data['results'].get('by_module', {}).items():
+        if module_name not in historical_data['by_module']:
+            historical_data['by_module'][module_name] = {
+                'total': 0,
+                'passed': 0,
+                'failed': 0,
+                'skipped': 0,
+                'success_rate': 0.0
+            }
+
+        hist_module = historical_data['by_module'][module_name]
+        hist_module['total'] += stats['total']
+        hist_module['passed'] += stats['passed']
+        hist_module['failed'] += stats['failed']
+        hist_module['skipped'] += stats['skipped']
+        hist_module['success_rate'] = (hist_module['passed'] / hist_module['total'] * 100) if hist_module[
+                                                                                                  'total'] > 0 else 0
+
+    return historical_data
+
+
+def print_statistics_report(statistics_data):
+    """
+    打印统计报告到控制台（包含历史和当次）
+    """
+    env = statistics_data['environment']
+    run_info = statistics_data['run_info']
+    results = statistics_data['results']
+
+    total = results['total']
+    passed = results['passed']
+    failed = results['failed']
+    skipped = results['skipped']
+
+    success_rate = (passed / total * 100) if total > 0 else 0
+
+    print("\n" + "=" * 60)
+    if env == 'jenkins':
+        print(" " * 18 + "Jenkins 运行统计")
+        print("=" * 60)
+        print(f"构建号：#{run_info.get('build_number', 'N/A')}")
+        print(f"任务名：{run_info.get('job_name', 'N/A')}")
+        if run_info.get('git_commit'):
+            print(f"Commit: {run_info.get('git_commit', '')[:7]}")
+    else:
+        print(" " * 20 + "本地运行统计")
+        print("=" * 60)
+        print(f"用户：{run_info.get('user', 'N/A')}@{run_info.get('hostname', 'N/A')}")
+        print(f"IDE: {run_info.get('ide', 'N/A')}")
+
+    print("-" * 60)
+    print(f"时间：{run_info.get('timestamp', 'N/A')}")
+    print("-" * 60)
+    print("【当次运行情况】")
+    print(f"总用例数：{total}")
+    print(f"成功：{passed} | 失败：{failed} | 跳过：{skipped}")
+    print(f"成功率：{success_rate:.2f}%")
+
+    # 加载并显示历史数据
+    if env == 'jenkins':
+        history_file = os.path.join('../logs', 'jenkins_stats', 'history_total.json')
+    else:
+        history_file = os.path.join('../logs', 'local_stats', 'history_total.json')
+
+    historical_data = load_historical_data(history_file, env)
+
+    if historical_data['total_runs'] > 0:
+        print("\n【历史运行统计】")
+        print(f"运行次数：{historical_data['total_runs']}")
+        print(f"首次运行：{historical_data['first_run_time']}")
+        print(f"最后运行：{historical_data['last_run_time']}")
+        print(f"累计总用例：{historical_data['cumulative']['total']}")
+        print(f"累计成功：{historical_data['cumulative']['passed']}")
+        print(f"累计失败：{historical_data['cumulative']['failed']}")
+        print(f"历史成功率：{historical_data['cumulative']['success_rate']:.2f}%")
+
+        # 显示最近 5 次的成功率趋势
+        if historical_data['runs_detail']:
+            print("\n【最近 5 次成功率趋势】")
+            recent_runs = historical_data['runs_detail'][-5:]
+            for i, run in enumerate(recent_runs):
+                trend_icon = "↑" if run['success_rate'] >= 95 else ("↓" if run['success_rate'] < 90 else "→")
+                run_identifier = run.get('build_number', run.get('ide', f'Run {i + 1}'))
+                print(
+                    f"  {trend_icon} 第 {len(historical_data['runs_detail']) - len(recent_runs) + i + 1} 次：{run['success_rate']:.2f}% ({run['passed']}/{run['total']}) - {run_identifier}")
+
+    # 按文件统计 Top 5
+    if results.get('by_file'):
+        print("\n【当次按文件统计 Top 5】")
+        sorted_files = sorted(
+            results['by_file'].items(),
+            key=lambda x: x[1]['passed'] / max(x[1]['total'], 1),
+            reverse=True
+        )[:5]
+
+        for file, stats in sorted_files:
+            file_success_rate = stats['passed'] / max(stats['total'], 1) * 100
+            file_name = Path(file).name
+            print(f"  {file_name}: {stats['passed']}/{stats['total']} ({file_success_rate:.1f}%)")
+
+    # 显示失败用例
+    if results.get('failed_tests'):
+        print(f"\n【失败用例】({len(results['failed_tests'])})")
+        for i, test in enumerate(results['failed_tests'][:5], 1):
+            test_name = test.get('name', '').split('::')[-1][:50]
+            print(f"  {i}. {test_name}")
+        if len(results['failed_tests']) > 5:
+            print(f"  ... 还有 {len(results['failed_tests']) - 5} 个失败用例")
+
+    print("=" * 60 + "\n")
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_logreport(report):
-    """增强的错误信息收集"""
-    global _test_results
+    """增强的错误信息收集 - 按环境分离"""
+    global _test_results_by_env
 
+    # 获取当前运行环境
+    env = detect_run_environment()
+    current_results = _test_results_by_env[env]
+
+    # 只在 call 阶段统计（真正的测试执行阶段）
     if report.when == 'call':
-        _test_results['total'] += 1
+        current_results['total'] += 1
+
+        # 按文件统计
+        test_file = report.nodeid.split('::')[0]
+        if test_file not in current_results['by_file']:
+            current_results['by_file'][test_file] = {'total': 0, 'passed': 0, 'failed': 0, 'skipped': 0}
+        current_results['by_file'][test_file]['total'] += 1
+
+        # 按模块统计
+        test_parts = test_file.replace('\\', '/').split('/')
+        if len(test_parts) > 1:
+            module_name = test_parts[-2]  # 获取 testcases 作为模块
+            if module_name not in current_results['by_module']:
+                current_results['by_module'][module_name] = {'total': 0, 'passed': 0, 'failed': 0, 'skipped': 0}
+            current_results['by_module'][module_name]['total'] += 1
 
         if report.passed:
-            _test_results['passed'] += 1
+            current_results['passed'] += 1
+            if test_file in current_results['by_file']:
+                current_results['by_file'][test_file]['passed'] += 1
+            if 'module_name' in locals() and module_name in current_results['by_module']:
+                current_results['by_module'][module_name]['passed'] += 1
+
         elif report.failed:
             error_msg = str(report.longrepr) if hasattr(report, 'longrepr') else None
             # 提取更详细的错误信息
             if error_msg and 'AssertionError' in error_msg:
                 error_msg = error_msg.split('AssertionError:')[-1].strip()
+            failed_test_info = {
+                "name": report.nodeid,
+                "nodeid": report.nodeid,
+                "error_message": error_msg
+            }
+            current_results['failed'] += 1
+            current_results['failed_tests'].append(failed_test_info)
 
-            _test_results['failed'] += 1
-            _test_results['failed_tests'].append({
-                'name': report.nodeid.split('::')[-1],
-                'nodeid': report.nodeid,
-                'error': error_msg,
-                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
-            })
+            if test_file in current_results['by_file']:
+                current_results['by_file'][test_file]['failed'] += 1
+            if 'module_name' in locals() and module_name in current_results['by_module']:
+                current_results['by_module'][module_name]['failed'] += 1
+
         elif report.skipped:
-            _test_results['skipped'] += 1
+            current_results['skipped'] += 1
+            if test_file in current_results['by_file']:
+                current_results['by_file'][test_file]['skipped'] += 1
+            if 'module_name' in locals() and module_name in current_results['by_module']:
+                current_results['by_module'][module_name]['skipped'] += 1
+
+    # setup 和 teardown 阶段的失败也需要记录（如 fixture 失败）
+    elif report.failed and report.when in ['setup', 'teardown']:
+        # setup/teardown 失败通常意味着测试无法执行，应该记录为失败
+        current_results['total'] += 1
+        current_results['failed'] += 1
+
+        error_msg = str(report.longrepr) if hasattr(report, 'longrepr') else None
+        failed_test_info = {
+            "name": report.nodeid,
+            "nodeid": report.nodeid,
+            "error_message": f"[{report.when}] {error_msg}" if error_msg else f"{report.when} failed"
+        }
+        current_results['failed_tests'].append(failed_test_info)
 
 
-
+# 要自动打开报告就放开，不自动打开就注释
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session, exitstatus):
-    # 只在主进程中打开报告
+def pytest_sessionfinish(session):
+    # 只在主进程执行(非 worker进程)
     if not hasattr(session.config, 'workerinput'):
+
+        # 检测当前运行环境
+        env = detect_run_environment()
+
+        # 获取该环境的统计结果
+        results = _test_results_by_env[env]
+
+        # 计算成功率
+        total = results['total']
+        passed = results['passed']
+        success_rate = (passed / total * 100) if total > 0 else 0
+
+        # 收集运行信息
+        run_info = collect_run_info(env)
+
+        # 构建完整的统计对象
+        statistics = {
+            'environment': env,
+            'run_info': run_info,
+            'results': results,
+            'success_rate': success_rate,
+            'summary': {
+                'total': total,
+                'passed': passed,
+                'failed': results['failed'],
+                'skipped': results['skipped'],
+                'success_rate': success_rate
+            }
+        }
+
+        # 保存统计结果
+        save_statistics(statistics)
+
+        # 打印统计报告
+        print_statistics_report(statistics)
+
         if ENABLE_ALLURE_REPORT:
             # 自动打开allure报告
             allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-            if allure_report_auto_open_config not in ["off", None, ""]:
+            if session.config.getoption("--allure_report_auto_open") != "off":
                 if sys.platform != "linux":
                     import subprocess
                     import psutil
@@ -871,262 +1278,17 @@ def pytest_sessionfinish(session, exitstatus):
                     except Exception as e:
                         print(f"Error managing Allure process: {str(e)}")
 
-        # 创建cat2bug BUG
-        if ENABLE_CAT2BUG_CREATION:
-            for failed_test in _test_results['failed_tests']:
-                print("\n开始为失败用例创建cat2bug...")
-                print(f"正在为用例 {failed_test['name']} 创建bug...")
-                # 调用构造函数，该函数会完成登录和创建bug的全过程
-                bug_result = construct_bug_data(failed_test)
-                if bug_result.get('status') == 'success':
-                    print(f"成功创建bug，编号: {bug_result.get('bug_id')}")
-                else:
-                    print("创建bug失败")
-
-def construct_bug_data(failed_test: Dict, **kwargs) -> Dict:
-    """构造cat2bug系统 bug 数据"""
-    # 登录获取token
-    with HttpClient(base_url=f"{BASE_URL}") as client:
-        login_data = {
-            "username": f"{USER}",
-            "password": f"{PWD}"
-        }
-
-        login_result = client.post("/login", json_data=login_data)
-        token = login_result.get('data', {}).get('token') if login_result.get('status_code') == 200 else None
-
-        if not token:
-            print("获取token失败")
-            return {}
-
-        # 构造bug数据
-        bug_data = {
-            "defectId": None,
-            "defectType": "BUG",
-            "defectName": f"自动化测试失败:{failed_test.get('name', '未知用例')}",
-            "defectDescribe": f"测试用例执行失败\n错误信息:\n{failed_test.get('error_message', '无错误信息')}\n\n测试节点:{failed_test.get('nodeid', '未知节点')}",
-            "annexUrls": None,
-            "imgUrls": None,
-            "projectId": 124,  # 可根据需要配置
-            "testPlanId": None,
-            "caseId": None,
-            "dataSources": None,
-            "dataSourcesParams": None,
-            "moduleId": None,
-            "moduleVersion": None,
-            "createBy": None,
-            "updateTime": None,
-            "createTime": None,
-            "updateBy": None,
-            "defectState": None,
-            "caseStepId": 0,
-            "handleBy": [213],  # 可根据需要配置处理人
-            "handleTime": None,
-            "defectLevel": "middle",
-            "srcHost": "https://www.cat2bug.com:8022"
-        }
-
-        # 请求头配置
-        headers = {
-            'authorization': f'Bearer {token}',
-            'Accept': "*/*",
-            'Content-Type': "application/json; charset=UTF-8"
-        }
-
-        # 提交bug
-        result = client.post("/system/defect", json_data=bug_data, headers=headers)
-
-        if result.get('status_code') == 200:
-            project_num = result.get('data', {}).get('data', {}).get('projectNum')
-            print(f"成功创建bug，bug编号: {project_num}")
-            return {
-                'bug_id': project_num,
-                'status': 'success',
-                'details': result
-            }
-        else:
-            print(f"创建bug失败: {result}")
-            return {
-                'bug_id': None,
-                'status': 'failed',
-                'details': result
-            }
-
-def get_assignee_from_test_case(failed_test: dict) -> str:
-    """
-    根据失败用例的文件名提取模块关键字，并查找配置中的负责人ID
-    :param failed_test: 失败的测试用例信息字典
-    :return: 负责人ID（字符串）
-    """
-
-    def extract_module_key(name: str):
-        """
-        从测试名称中提取 test_xxx.py 文件名中的完整模块关键字（含 .py）
-        示例输入：
-            'testcases/test_询报价流程_无PN申请转询价.py::test_询报价流程_申请转询价_无PN申请[chromium]'
-        输出：
-            'test_询报价流程_无PN申请转询价.py'
-        """
-        # 提取 :: 左边的部分（即文件路径部分）
-        file_part = name.split("::")[0] if "::" in name else name
-        # 获取文件名（不含路径）
-        filename = Path(file_part).name  # 如 test_询报价流程_无PN申请转询价.py
-
-        # 匹配 test_xxx.py 格式的文件名
-        match = re.search(r"(test_.+?\.py)", filename, re.UNICODE)
-        if match:
-            return match.group(1)  # 返回完整文件名如 test_xxx.py
-        return None
-
-    # 尝试从 'name' 中提取模块关键字
-    test_name = failed_test.get('name', '')
-    module_key = extract_module_key(test_name)
-
-    # 如果没找到，尝试从 'nodeid' 中提取（更可靠）
-    if not module_key:
-        nodeid = failed_test.get('nodeid', '')
-        module_key = extract_module_key(nodeid)
-
-    # 查找配置中的指派人
-    if module_key:
-        assignee = getattr(globalconfig, "BUG_ASSIGNMENT_RULES", {}).get(module_key)
-        if assignee:
-            return assignee
-
-    # 返回默认负责人
-    return getattr(globalconfig, "DEFAULT_ASSIGNEE", "fallback_id")
-
-# """
-# 在文件顶部导入部分添加requests
-# import requests
-# from typing import Dict, List
-#
-#
-# @pytest.hookimpl(trylast=True)
-# def pytest_sessionfinish(session, exitstatus):
-#     """增强的测试结束处理"""
-#     global _test_results
-#
-#     # 1. 打印美观的统计结果
-#     print("\n" + "="*50)
-#     print("测试执行统计".center(50))
-#     print("-"*50)
-#     print(f"总用例数: {_test_results['total']}")
-#     print(f"通过数: \033[32m{_test_results['passed']}\033[0m")
-#     print(f"失败数: \033[31m{_test_results['failed']}\033[0m")
-#     print(f"跳过数: {_test_results['skipped']}")
-#     print("="*50 + "\n")
-#
-
-#
-#     # 保留原有的allure报告处理逻辑
-#     allure_report_auto_open_config = session.config.getoption("--allure_report_auto_open")
-#     if allure_report_auto_open_config != "off":
-#         if sys.platform != "linux":
-#             import subprocess
-#             import psutil
-#             import time
-#             def kill_existing_allure_processes():
-#                 '''关闭所有运行中的 allure serve 进程'''
-#                 killed = False
-#                 for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-#                     try:
-#                         cmdline = proc.info['cmdline']
-#                         # 确保是 allure serve 进程
-#                         if cmdline and 'allure' in ' '.join(cmdline) and 'serve' in ' '.join(cmdline):
-#                             print(f"\nFound existing Allure process (PID: {proc.info['pid']}), terminating...")
-#                             psutil.Process(proc.info['pid']).terminate()
-#                             killed = True
-#                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-#                         continue
-#
-#                 if killed:
-#                     # 给进程一点时间来完全终止
-#                     time.sleep(1)
-#                 return killed
-#
-#             try:
-#                 # 先尝试关闭已存在的 allure 进程
-#                 kill_existing_allure_processes()
-#
-#                 # 启动新的 allure 服务
-#                 allure_command = f'allure serve {allure_report_auto_open_config}'
-#                 print(f"Starting new Allure server: {allure_command}")
-#                 subprocess.Popen(allure_command, shell=True)
-#
-#             except Exception as e:
-#                 print(f"Error managing Allure process: {str(e)}")
-#
-# # """
-#
-#
-# def _create_zentaobug(failed_test: Dict) -> None:
-#     """创建禅道bug的调试友好版本"""
-#     try:
-#         bug_data = {
-#             "product": "自动化测试",
-#             "module": "Playwright测试",
-#             "title": f"自动化测试失败: {failed_test['name']}",
-#             "steps": f"测试用例 {failed_test['nodeid']} 执行失败\n\n"
-#                     f"错误信息:\n{failed_test.get('error', '无详细错误信息')}",
-#             "severity": 3,
-#             "pri": 2,
-#             "openedBuild": "trunk"
-#         }
-#
-#
-#         # 实际调用代码
-#         response = requests.post(
-#             "http://your-zentao-api/bug-create",
-#             json=bug_data,
-#             headers={
-#                 "Content-Type": "application/json",
-#                 "Authorization": "Bearer your_token"
-#             }
-#         )
-#         response.raise_for_status()
-#         print(f"成功创建禅道bug: {response.json()}")
-#     except Exception as e:
-#         print(f"创建禅道bug失败: {str(e)}")
-#
-# @pytest.hookimpl(tryfirst=True)
-# def pytest_runtest_logreport(report):
-#     """增强的错误信息收集"""
-#     global _test_results
-#
-#     if report.when == 'call':
-#         _test_results['total'] += 1
-#
-#         if report.passed:
-#             _test_results['passed'] += 1
-#         elif report.failed:
-#             error_msg = str(report.longrepr) if hasattr(report, 'longrepr') else None
-#             # 提取更详细的错误信息
-#             if error_msg and 'AssertionError' in error_msg:
-#                 error_msg = error_msg.split('AssertionError:')[-1].strip()
-#
-#             _test_results['failed'] += 1
-#             _test_results['failed_tests'].append({
-#                 'name': report.nodeid.split('::')[-1],
-#                 'nodeid': report.nodeid,
-#                 'error': error_msg,
-#                 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
-#             })
-#         elif report.skipped:
-#             _test_results['skipped'] += 1
-# import pytest
-#
-# def pytest_collection_modifyitems(config, items):
-#     """根据标记重新排序测试项"""
-#     # 分离并行和串行用例
-#     parallel = []
-#     serial = []
-#
-#     for item in items:
-#         if item.get_closest_marker("parallel"):
-#             parallel.append(item)
-#         else:
-#             serial.append(item)
-#
-#     # 先执行并行用例，后执行串行用例
-#     items[:] = parallel + serial
+        if ENABLE_BUG_CREATION:
+            bug_results = BugHelper.create_bugs_for_failed_tests(
+                results['failed_tests'],
+                defectType="BUG",
+                projectId=259,
+                moduleId=None,
+                defectLevel="middle",
+                caseStepId=0,
+                srcHost=BUG_URL,
+            )
+            success_count = sum(1 for result in bug_results if result["success"])
+            logger.info(
+                f"缺陷创建完成，共处理 {len(bug_results)} 条失败记录，成功 {success_count} 条，失败 {len(bug_results) - success_count} 条"
+            )

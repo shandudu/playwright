@@ -8,7 +8,8 @@ import threading
 from utils.feishu_robot import send_feishu_report
 
 # 配置常量 - 与pytest.ini保持一致
-ALLURE_RESULTS_DIR = "D:/pythonProject/playwright/playwright01/.allure_report"
+# ALLURE_RESULTS_DIR = "D:/pythonProject/playwright/playwright01/.allure_report"
+ALLURE_RESULTS_DIR = "./allure-report"
 ALLURE_REPORT_DIR = "./allure-report"
 FEISHU_WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/3886da75-cf80-4b53-80f5-f9ca829be053"
 ALLURE_SERVER_PORT = 13156  # 固定端口
@@ -187,7 +188,7 @@ import pytest
 from utils.logger import logger
 
 # 控制是否启用多线程
-enable_multi_threading = True
+enable_multi_threading = False
 
 
 def clear_directories():
@@ -231,23 +232,23 @@ if __name__ == "__main__":
         ])
 
 
-def merge_allure_results():
-    """合并多个 allure 结果目录"""
-    print("📊 合并 Allure 测试结果...")
-    parallel_dir = PARALLEL_ALLURE_DIR
-    serial_dir = SERIAL_ALLURE_DIR
-    output_dir = ALLURE_REPORT_DIR + "/merged"
-
-    # 确保合并目录存在
-    os.makedirs(output_dir, exist_ok=True)
-
-    # 复制所有 JSON 文件
-    import glob
-    for src_dir in [parallel_dir, serial_dir]:
-        if os.path.exists(src_dir):
-            for json_file in glob.glob(os.path.join(src_dir, "*.json")):
-                shutil.copy(json_file, output_dir)
-    return output_dir
+# def merge_allure_results():
+#     """合并多个 allure 结果目录"""
+#     print("📊 合并 Allure 测试结果...")
+#     parallel_dir = PARALLEL_ALLURE_DIR
+#     serial_dir = SERIAL_ALLURE_DIR
+#     output_dir = ALLURE_REPORT_DIR + "/merged"
+#
+#     # 确保合并目录存在
+#     os.makedirs(output_dir, exist_ok=True)
+#
+#     # 复制所有 JSON 文件
+#     import glob
+#     for src_dir in [parallel_dir, serial_dir]:
+#         if os.path.exists(src_dir):
+#             for json_file in glob.glob(os.path.join(src_dir, "*.json")):
+#                 shutil.copy(json_file, output_dir)
+#     return output_dir
 
 
 def generate_allure_report(merged_dir):
@@ -257,47 +258,47 @@ def generate_allure_report(merged_dir):
     os.system(f"allure generate \"{merged_dir}\" -o \"{report_output}\" --clean")
     os.system(f"allure open \"{report_output}\"")
 
-
-if __name__ == '__main__':
-    # 清空历史报告
-    if os.path.exists(ALLURE_REPORT_DIR):
-        shutil.rmtree(ALLURE_REPORT_DIR)
-
-    if enable_multi_threading:
-        # 启动并行任务（子进程）
-        p = Process(target=run_parallel)
-        p.start()
-
-        # 主进程运行串行部分
-        run_serial()
-
-        # 等待并行完成
-        p.join()
-
-        # 合并结果
-        merged_dir = merge_allure_results()
-
-        # 生成最终报告
-        generate_allure_report(merged_dir)
-
-    else:
-        # 单进程模式：全部用例一起执行
-        print("🧪 单线程模式运行所有测试...")
-        pytest.main([
-            "--alluredir", ALLURE_REPORT_DIR,
-            "-v"
-        ])
-        # 可选：生成报告
-        # os.system(f"allure generate \"{ALLURE_REPORT_DIR}\" -o \"./allure-report\" --clean")
-        # os.system("allure open ./allure-report")
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    exit_code = main()
-    sys.exit(exit_code)
-    print('执行完成')
+#
+# if __name__ == '__main__':
+#     # 清空历史报告
+#     if os.path.exists(ALLURE_REPORT_DIR):
+#         shutil.rmtree(ALLURE_REPORT_DIR)
+#
+#     if enable_multi_threading:
+#         # 启动并行任务（子进程）
+#         p = Process(target=run_parallel)
+#         p.start()
+#
+#         # 主进程运行串行部分
+#         run_serial()
+#
+#         # 等待并行完成
+#         p.join()
+#
+#         # 合并结果
+#         merged_dir = merge_allure_results()
+#
+#         # 生成最终报告
+#         generate_allure_report(merged_dir)
+#
+#     else:
+#         # 单进程模式：全部用例一起执行
+#         print("🧪 单线程模式运行所有测试...")
+#         pytest.main([
+#             "--alluredir", ALLURE_REPORT_DIR,
+#             "-v"
+#         ])
+#         # 可选：生成报告
+#         # os.system(f"allure generate \"{ALLURE_REPORT_DIR}\" -o \"./allure-report\" --clean")
+#         # os.system("allure open ./allure-report")
+#
+#
+#
+#
+#
+#
+#
+# if __name__ == "__main__":
+#     exit_code = main()
+#     sys.exit(exit_code)
+#     print('执行完成')

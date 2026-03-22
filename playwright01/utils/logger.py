@@ -29,7 +29,7 @@ class Logger:
     def _setup_handlers(self):
         """设置日志处理器"""
         # 创建日志目录
-        log_dir = Path("./logs")
+        log_dir = Path("../logs")
         log_dir.mkdir(exist_ok=True)
 
         # 文件日志处理器

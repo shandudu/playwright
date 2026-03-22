@@ -24,11 +24,14 @@ class MyData:
                          "测试经理":
                              {"username": "xxx_98", "password": "syx201314"},
                          },
-                    "www":
+                    "cat2bug":
                         {"测试员":
-                             {"username": "winni1", "password": "playwright001"},
-                         "测试经理":
-                             {"username": "xxx_98", "password": "syx201314"},
+                             {"username": "xxx", "password": "xxx123456"},
+                         },
+                    "macrozheng":
+                        {"测试员":
+                             {"username": "admin", "password": "macro123"},
+
                          },
                     }
 

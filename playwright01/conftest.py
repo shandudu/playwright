@@ -9,8 +9,10 @@ import shutil
 import sys
 import tempfile
 import time
+import math
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, cast
+from urllib.parse import urlsplit
 
 # ============================================================================
 # 第三方库
@@ -44,6 +46,8 @@ from playwright01.utils.pattern_util import clean_title, clean_title_simple
 
 api_Count = []
 time_out = 60000 # 全局时间，Locator类使用
+# 统一缓存本次会话的接口性能记录（仅 xhr/fetch）
+_api_perf_records: List[Dict[str, Any]] = []
 
 
 def get_page_title(page: Page) -> str:
@@ -432,6 +436,10 @@ class ArtifactsRecorder:
         base_url = GlobalMap().get("baseurl")
         context.on("page", lambda page: self._all_pages.append(page))
         global api_Count
+        global _api_perf_records
+        request_start_times: Dict[int, Dict[str, Any]] = {}
+        # request id -> metadata，避免闭包中丢失开始时间
+        request_start_times: Dict[int, Dict[str, Any]] = {}
 
         def on_page(page: Page):
             def on_clear(my_page: Page):
@@ -448,12 +456,44 @@ class ArtifactsRecorder:
         def on_add_request(req):
             if any(fix in req.url for fix in [base_url]):
                 api_Count.append(req.url)
+            # 仅统计业务价值更高的接口请求
+            if req.resource_type in ["xhr", "fetch"]:
+                request_start_times[id(req)] = {
+                    "start_perf": time.perf_counter(),
+                    "method": req.method,
+                    "url": req.url,
+                    "resource_type": req.resource_type,
+                    "test_nodeid": getattr(self._request.node, "nodeid", self._request.node.name),
+                    "execution_count": getattr(self._request.node, "execution_count", 1),
+                }
 
         def on_remove_request(req):
             try:
                 api_Count.remove(req.url)
             except:
                 pass
+            start_meta = request_start_times.pop(id(req), None)
+            if not start_meta:
+                return
+
+            duration_ms = round((time.perf_counter() - start_meta["start_perf"]) * 1000, 2)
+            parsed_url = urlsplit(start_meta["url"])
+            response = req.response()
+            status_code = response.status if response else None
+            endpoint = f'{start_meta["method"]} {parsed_url.path or "/"}'
+            _api_perf_records.append({
+                "method": start_meta["method"],
+                "url": start_meta["url"],
+                "endpoint": endpoint,
+                "path": parsed_url.path or "/",
+                "query": parsed_url.query,
+                "status": status_code,
+                "resource_type": start_meta["resource_type"],
+                "duration_ms": duration_ms,
+                "test_nodeid": start_meta["test_nodeid"],
+                "execution_count": start_meta["execution_count"],
+                "recorded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
 
         context.on("page", on_page)
         context.on("request", on_add_request)
@@ -1122,6 +1162,223 @@ def print_statistics_report(statistics_data):
 
     print("=" * 60 + "\n")
 
+
+def _calc_percentile(values: List[float], percentile: float) -> float:
+    """计算百分位数（线性插值），percentile 取值范围 0~1。"""
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    k = (len(sorted_values) - 1) * percentile
+    floor_index = math.floor(k)
+    ceil_index = math.ceil(k)
+    if floor_index == ceil_index:
+        return float(sorted_values[int(k)])
+    floor_value = sorted_values[floor_index]
+    ceil_value = sorted_values[ceil_index]
+    return float(floor_value + (ceil_value - floor_value) * (k - floor_index))
+
+
+def _build_slow_api_report(
+        records: List[Dict[str, Any]],
+        environment: str,
+        min_slow_ms: float = 1000.0,
+        percentile_threshold: float = 0.95,
+        min_samples_for_percentile: int = 20,
+) -> Dict[str, Any]:
+    """构建慢接口报告（固定阈值 + P95 动态阈值）。"""
+    by_endpoint: Dict[str, List[Dict[str, Any]]] = {}
+    for record in records:
+        endpoint_key = record.get("endpoint", "UNKNOWN")
+        by_endpoint.setdefault(endpoint_key, []).append(record)
+
+    endpoint_baseline: Dict[str, Dict[str, Any]] = {}
+    for endpoint_key, endpoint_records in by_endpoint.items():
+        durations = [float(item["duration_ms"]) for item in endpoint_records if item.get("duration_ms") is not None]
+        p95 = _calc_percentile(durations, percentile_threshold) if durations else 0.0
+        p50 = _calc_percentile(durations, 0.50) if durations else 0.0
+        dynamic_threshold = p95 if len(durations) >= min_samples_for_percentile else 0.0
+        final_threshold = max(min_slow_ms, dynamic_threshold)
+        endpoint_baseline[endpoint_key] = {
+            "samples": len(durations),
+            "p50_ms": round(p50, 2),
+            "p95_ms": round(p95, 2),
+            "dynamic_threshold_ms": round(dynamic_threshold, 2),
+            "final_threshold_ms": round(final_threshold, 2),
+        }
+
+    slow_records: List[Dict[str, Any]] = []
+    for record in records:
+        endpoint_key = record.get("endpoint", "UNKNOWN")
+        duration_ms = float(record.get("duration_ms") or 0.0)
+        threshold_ms = float(endpoint_baseline.get(endpoint_key, {}).get("final_threshold_ms", min_slow_ms))
+        if duration_ms >= threshold_ms:
+            item = dict(record)
+            item["slow_threshold_ms"] = threshold_ms
+            slow_records.append(item)
+
+    slow_records.sort(key=lambda item: float(item.get("duration_ms", 0.0)), reverse=True)
+    return {
+        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "environment": environment,
+        "rules": {
+            "absolute_threshold_ms": min_slow_ms,
+            "percentile_threshold": percentile_threshold,
+            "min_samples_for_percentile": min_samples_for_percentile,
+            "final_threshold_formula": "max(absolute_threshold_ms, endpoint_p95_if_enough_samples_else_0)",
+            "resource_types": ["xhr", "fetch"],
+        },
+        "summary": {
+            "total_api_calls": len(records),
+            "slow_api_calls": len(slow_records),
+            "slow_ratio_percent": round((len(slow_records) / len(records) * 100), 2) if records else 0.0,
+        },
+        "endpoint_baseline": endpoint_baseline,
+        "slow_apis": slow_records,
+    }
+
+
+def _load_recent_slow_api_reports(base_dir: str, current_report_file: str, lookback_runs: int = 20) -> List[Dict[str, Any]]:
+    """读取历史慢接口报告（不含当前 run），用于构建性能基线。"""
+    if not os.path.isdir(base_dir):
+        return []
+    current_abs = os.path.abspath(current_report_file)
+    files: List[str] = []
+    for name in os.listdir(base_dir):
+        if not (name.startswith("slow_apis_") and name.endswith(".json")):
+            continue
+        full_path = os.path.abspath(os.path.join(base_dir, name))
+        if full_path == current_abs:
+            continue
+        files.append(full_path)
+    files.sort(key=lambda fp: os.path.getmtime(fp), reverse=True)
+
+    reports: List[Dict[str, Any]] = []
+    for file_path in files[:lookback_runs]:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                reports.append(data)
+        except Exception as e:
+            logger.warning(f"读取历史慢接口报告失败，已跳过: {file_path}, err={e}")
+    return reports
+
+
+def _build_baseline_regression_alerts(
+        current_report: Dict[str, Any],
+        history_reports: List[Dict[str, Any]],
+        min_history_points: int = 3,
+        min_current_samples: int = 5,
+) -> Dict[str, Any]:
+    """生成基线回归告警（历史中位 P95 对比当前 P95）。"""
+    current_baseline = current_report.get("endpoint_baseline", {})
+    history_by_endpoint: Dict[str, List[float]] = {}
+
+    for history in history_reports:
+        baseline = history.get("endpoint_baseline", {})
+        if not isinstance(baseline, dict):
+            continue
+        for endpoint, metrics in baseline.items():
+            if not isinstance(metrics, dict):
+                continue
+            p95 = metrics.get("p95_ms")
+            samples = int(metrics.get("samples", 0))
+            if p95 is None or samples <= 0:
+                continue
+            history_by_endpoint.setdefault(endpoint, []).append(float(p95))
+
+    alerts: List[Dict[str, Any]] = []
+    for endpoint, metrics in current_baseline.items():
+        if not isinstance(metrics, dict):
+            continue
+        current_samples = int(metrics.get("samples", 0))
+        current_p95 = float(metrics.get("p95_ms", 0.0))
+        if current_samples < min_current_samples:
+            continue
+
+        history_p95 = history_by_endpoint.get(endpoint, [])
+        if len(history_p95) < min_history_points:
+            continue
+
+        baseline_p95 = _calc_percentile(history_p95, 0.50)
+        if baseline_p95 <= 0:
+            continue
+
+        ratio = current_p95 / baseline_p95
+        delta_ms = current_p95 - baseline_p95
+        severity = None
+        if ratio >= 1.5 and delta_ms >= 500:
+            severity = "critical"
+        elif ratio >= 1.2 and delta_ms >= 200:
+            severity = "warning"
+
+        if severity:
+            alerts.append({
+                "severity": severity,
+                "endpoint": endpoint,
+                "current_p95_ms": round(current_p95, 2),
+                "baseline_p95_ms": round(baseline_p95, 2),
+                "delta_ms": round(delta_ms, 2),
+                "ratio": round(ratio, 3),
+                "current_samples": current_samples,
+                "history_points": len(history_p95),
+            })
+
+    alerts.sort(key=lambda item: (0 if item["severity"] == "critical" else 1, -item["delta_ms"]))
+    return {
+        "rules": {
+            "current_min_samples": min_current_samples,
+            "history_min_points": min_history_points,
+            "baseline_metric": "median_of_historical_p95",
+            "warning": "ratio>=1.2 and delta_ms>=200",
+            "critical": "ratio>=1.5 and delta_ms>=500",
+        },
+        "summary": {
+            "history_reports_used": len(history_reports),
+            "endpoints_compared": len(current_baseline),
+            "alerts_total": len(alerts),
+            "critical": sum(1 for item in alerts if item["severity"] == "critical"),
+            "warning": sum(1 for item in alerts if item["severity"] == "warning"),
+        },
+        "alerts": alerts,
+    }
+
+
+def save_slow_api_report(environment: str, records: List[Dict[str, Any]]) -> Optional[str]:
+    """保存慢接口报告，并同时输出基线对比告警 JSON。"""
+    if not records:
+        logger.info("未采集到 xhr/fetch 接口调用，跳过慢接口报告生成。")
+        return None
+
+    report_data = _build_slow_api_report(records, environment)
+    timestamp = time.strftime("%Y-%m-%d_%H%M%S")
+    base_dir = os.path.join("../logs", "api_perf", environment)
+    os.makedirs(base_dir, exist_ok=True)
+
+    report_file = os.path.join(base_dir, f"slow_apis_{timestamp}.json")
+    latest_file = os.path.join(base_dir, "latest_slow_apis.json")
+
+    # 基线回归：使用当前 run 之前的历史慢接口报告构建基线
+    history_reports = _load_recent_slow_api_reports(base_dir, report_file, lookback_runs=20)
+    regression_data = _build_baseline_regression_alerts(report_data, history_reports)
+    report_data["baseline_regression"] = regression_data
+
+    with open(report_file, "w", encoding="utf-8") as f:
+        json.dump(report_data, f, ensure_ascii=False, indent=2)
+    with open(latest_file, "w", encoding="utf-8") as f:
+        json.dump(report_data, f, ensure_ascii=False, indent=2)
+
+    baseline_file = os.path.join(base_dir, f"baseline_alerts_{timestamp}.json")
+    latest_baseline_file = os.path.join(base_dir, "latest_baseline_alerts.json")
+    with open(baseline_file, "w", encoding="utf-8") as f:
+        json.dump(regression_data, f, ensure_ascii=False, indent=2)
+    with open(latest_baseline_file, "w", encoding="utf-8") as f:
+        json.dump(regression_data, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"慢接口报告已保存: {report_file}")
+    logger.info(f"基线告警报告已保存: {baseline_file}, alerts={regression_data.get('summary', {}).get('alerts_total', 0)}")
+    return report_file
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_logreport(report):
     """增强的错误信息收集 - 按环境分离"""
@@ -1199,6 +1456,7 @@ def pytest_runtest_logreport(report):
 # 要自动打开报告就放开，不自动打开就注释
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session):
+    global _api_perf_records
     # 只在主进程执行(非 worker进程)
     if not hasattr(session.config, 'workerinput'):
 
@@ -1236,6 +1494,8 @@ def pytest_sessionfinish(session):
 
         # 打印统计报告
         print_statistics_report(statistics)
+        # 输出接口慢请求与基线回归告警报告
+        save_slow_api_report(env, _api_perf_records)
 
         if ENABLE_ALLURE_REPORT:
             # 自动打开allure报告
